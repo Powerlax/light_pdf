@@ -70,9 +70,12 @@ def test_data_persistence():
     """Test reading position and highlights persistence"""
     print("\nTesting data persistence...")
     
+    import tempfile
+    
     # Test saving reading position
     try:
-        position_file = '/tmp/test_positions.json'
+        temp_dir = tempfile.gettempdir()
+        position_file = os.path.join(temp_dir, 'test_positions.json')
         positions = {
             'test_sample.pdf': {
                 'page': 1,
@@ -99,7 +102,7 @@ def test_data_persistence():
     
     # Test saving highlights
     try:
-        highlights_file = '/tmp/test_highlights.json'
+        highlights_file = os.path.join(temp_dir, 'test_highlights.json')
         highlights = {
             'test_sample.pdf': {
                 '0': [[10, 20, 100, 30]],

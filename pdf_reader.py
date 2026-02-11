@@ -435,7 +435,8 @@ class PDFReader:
         """Save highlights for the current document"""
         try:
             # Use a separate file for highlights
-            highlights_file = self.position_file.replace('.json', '_highlights.json')
+            base, ext = os.path.splitext(self.position_file)
+            highlights_file = base + '_highlights.json'
             
             all_highlights = {}
             if os.path.exists(highlights_file):
@@ -453,15 +454,16 @@ class PDFReader:
     def load_highlights(self, filename):
         """Load highlights for the current document"""
         try:
-            highlights_file = self.position_file.replace('.json', '_highlights.json')
+            base, ext = os.path.splitext(self.position_file)
+            highlights_file = base + '_highlights.json'
             
             if os.path.exists(highlights_file):
                 with open(highlights_file, 'r') as f:
                     all_highlights = json.load(f)
                     
                 if filename in all_highlights:
-                    # Convert page numbers from strings to integers
-                    self.highlights = {int(k): v for k, v in all_highlights[filename].items()}
+                    # Convert page numbers from strings to integers (JSON stores dict keys as strings)
+                    self.highlights = {int(k): v for k, v in all_highlights[filename].items() if k.isdigit()}
                 else:
                     self.highlights = {}
             else:
