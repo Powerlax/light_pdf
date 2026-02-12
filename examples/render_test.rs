@@ -2,8 +2,17 @@ use std::path::PathBuf;
 use light_pdf::pdf::PdfDocument;
 
 // Simple example to test PDF rendering without GUI
+// NOTE: This example must be run from the repository root directory:
+//       cargo run --example render_test
 fn main() {
     let test_pdf = PathBuf::from("multipage.pdf");
+    
+    if !test_pdf.exists() {
+        eprintln!("Error: multipage.pdf not found!");
+        eprintln!("Please run this example from the repository root directory:");
+        eprintln!("  cargo run --example render_test");
+        std::process::exit(1);
+    }
     
     println!("Testing PDF rendering with pdfium-render...");
     println!("Loading PDF: {}", test_pdf.display());

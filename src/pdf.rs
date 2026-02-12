@@ -20,12 +20,21 @@ impl Default for PdfMetadata {
     }
 }
 
+// NOTE: Field ordering is CRITICAL for memory safety!
+// `document` MUST be declared before `pdfium` because:
+// - PdfiumDocument holds a reference to the Pdfium instance
+// - We use unsafe transmute to extend the lifetime
+// - Rust drops struct fields in declaration order (top to bottom)
+// - This ensures `document` is dropped before `pdfium`
+// DO NOT REORDER THESE FIELDS without understanding the safety implications!
 pub struct PdfDocument {
     pub file: PathBuf,
     pub metadata_file: Option<PathBuf>,
     pub metadata: PdfMetadata,
     pub total_pages: Option<usize>,
+    // SAFETY: Must be declared before `pdfium` - see comment above
     document: Option<PdfiumDocument<'static>>,
+    // SAFETY: Must be declared after `document` - see comment above
     pdfium: Pdfium,
     page_cache: HashMap<usize, image::DynamicImage>,
 }
@@ -51,10 +60,23 @@ impl PdfDocument {
         let (document, total_pages) = match pdfium.load_pdf_from_file(&file, None) {
             Ok(doc) => {
                 let pages = doc.pages().len() as usize;
-                // SAFETY: We're extending the lifetime to 'static here.
-                // This is safe because the PdfiumDocument will be dropped before pdfium,
-                // as document is listed before pdfium in the struct definition.
-                // Rust drops struct fields in declaration order.
+                // SAFETY: Extending lifetime from borrowed to 'static using transmute.
+                // This is necessary because PdfDocument needs to own both pdfium and document,
+                // but document borrows from pdfium. This creates a self-referential struct.
+                // 
+                // Why this is safe:
+                // 1. The `document` field is declared BEFORE `pdfium` in the struct
+                // 2. Rust drops struct fields in declaration order
+                // 3. This guarantees `document` is dropped before `pdfium`
+                // 4. The PdfiumDocument will never outlive the Pdfium instance
+                //
+                // IMPORTANT: This safety relies on field ordering. Do NOT reorder
+                // the `document` and `pdfium` fields without updating this code.
+                //
+                // Alternative approaches considered:
+                // - Using `ouroboros` or `self_cell` crates (adds complexity)
+                // - Separating lifetimes (requires Arc/Rc and runtime checks)
+                // - Using unsafe Pin (more complex, similar safety requirements)
                 let static_doc = unsafe { std::mem::transmute(doc) };
                 (Some(static_doc), Some(pages))
             }
@@ -207,7 +229,13 @@ impl PdfDocument {
         // Try to render the page
         if let Some(doc) = &self.document {
             // Convert usize to u16 for pdfium (page index is 0-based)
-            let page_index = (page_num.saturating_sub(1)) as u16;
+            // Check for overflow: pdfium uses u16 for page indices (max 65535 pages)
+            let page_index = page_num.saturating_sub(1);
+            if page_index > u16::MAX as usize {
+                eprintln!("Page number {} exceeds maximum supported pages (65536)", page_num);
+                return None;
+            }
+            let page_index = page_index as u16;
             
             match doc.pages().get(page_index) {
                 Ok(page) => {
