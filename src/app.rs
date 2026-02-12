@@ -158,8 +158,8 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                     ui.add_space(50.0);
                     ui.heading("PDF Rendering Not Yet Implemented");
                     ui.add_space(20.0);
-                    ui.label("This version uses lopdf, a pure Rust PDF parser that doesn't require external libraries (.so files).");
-                    ui.label("However, PDF rendering to images is not yet available.");
+                    ui.label("This version uses a pure Rust PDF parser with no platform dependencies.");
+                    ui.label("However, PDF page rendering is not yet available.");
                     ui.add_space(10.0);
                     ui.label("The application can still:");
                     ui.label("  ✓ Load and parse PDF files");
@@ -167,7 +167,7 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                     ui.label("  ✓ Navigate between pages");
                     ui.label("  ✓ Save and load page position and zoom level");
                     ui.add_space(20.0);
-                    ui.label("✓ No external libraries required - works on all platforms!");
+                    ui.label("✓ Works on all platforms without external dependencies!");
                 });
             }
         }

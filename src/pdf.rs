@@ -189,7 +189,7 @@ impl PdfDocument {
     /// Render the current page to an image. 
     /// Note: Rendering is not yet implemented with lopdf (pure Rust parser).
     /// This method currently returns None until a pure Rust rendering solution is integrated.
-    pub fn render_page(&mut self, _page_num: usize) -> Option<&image::DynamicImage> {
+    pub fn render_page(&mut self, _: usize) -> Option<&image::DynamicImage> {
         // lopdf is a pure Rust PDF parser but doesn't provide rendering to images
         // Rendering PDFs to raster images in pure Rust is complex and requires:
         // - Font rendering
