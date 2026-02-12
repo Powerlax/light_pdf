@@ -2,6 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use pdfium_render::prelude::*;
+
+// Type alias to avoid conflict with our PdfDocument struct
+type PdfiumDocument<'a> = pdfium_render::prelude::PdfDocument<'a>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PdfMetadata {
@@ -15,12 +20,14 @@ impl Default for PdfMetadata {
     }
 }
 
-#[derive(Debug, Clone)]
 pub struct PdfDocument {
     pub file: PathBuf,
     pub metadata_file: Option<PathBuf>,
     pub metadata: PdfMetadata,
     pub total_pages: Option<usize>,
+    document: Option<PdfiumDocument<'static>>,
+    pdfium: Pdfium,
+    page_cache: HashMap<usize, image::DynamicImage>,
 }
 
 impl PdfDocument {
@@ -39,11 +46,32 @@ impl PdfDocument {
             .and_then(|mf| Self::load_metadata_from(mf).ok())
             .unwrap_or_default();
 
+        // Try to initialize Pdfium and load the document
+        let mut pdfium = Pdfium::default();
+        let (document, total_pages) = match pdfium.load_pdf_from_file(&file, None) {
+            Ok(doc) => {
+                let pages = doc.pages().len() as usize;
+                // SAFETY: We're extending the lifetime to 'static here.
+                // This is safe because the PdfiumDocument will be dropped before pdfium,
+                // as document is listed before pdfium in the struct definition.
+                // Rust drops struct fields in declaration order.
+                let static_doc = unsafe { std::mem::transmute(doc) };
+                (Some(static_doc), Some(pages))
+            }
+            Err(e) => {
+                eprintln!("Failed to load PDF {}: {:?}", file.display(), e);
+                (None, None)
+            }
+        };
+
         Self {
             file,
             metadata_file,
             metadata,
-            total_pages: None,
+            total_pages,
+            document,
+            pdfium,
+            page_cache: HashMap::new(),
         }
     }
 
@@ -166,6 +194,59 @@ impl PdfDocument {
             .map(|s| s.to_string())
             .or_else(|| self.file.file_name().and_then(|s| s.to_str()).map(|s| s.to_string()))
             .unwrap_or_else(|| "Untitled".to_string())
+    }
+
+    /// Render the current page to an image. Returns the cached image if available,
+    /// otherwise renders the page and caches it.
+    pub fn render_page(&mut self, page_num: usize) -> Option<&image::DynamicImage> {
+        // Check if page is in cache
+        if self.page_cache.contains_key(&page_num) {
+            return self.page_cache.get(&page_num);
+        }
+
+        // Try to render the page
+        if let Some(doc) = &self.document {
+            // Convert usize to u16 for pdfium (page index is 0-based)
+            let page_index = (page_num.saturating_sub(1)) as u16;
+            
+            match doc.pages().get(page_index) {
+                Ok(page) => {
+                    // Render with zoom level
+                    let width = (page.width().value * self.metadata.zoom) as i32;
+                    let render_config = PdfRenderConfig::new()
+                        .set_target_width(width.max(100))
+                        .set_maximum_height(4000);
+
+                    match page.render_with_config(&render_config) {
+                        Ok(bitmap) => {
+                            let image_result = bitmap.as_image();
+                            self.page_cache.insert(page_num, image_result);
+                            self.page_cache.get(&page_num)
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to render page {}: {:?}", page_num, e);
+                            None
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to get page {}: {:?}", page_num, e);
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Get the currently rendered page as an image.
+    pub fn get_current_page_image(&mut self) -> Option<&image::DynamicImage> {
+        self.render_page(self.metadata.page)
+    }
+
+    /// Clear the page cache to free memory.
+    pub fn clear_cache(&mut self) {
+        self.page_cache.clear();
     }
 }
 

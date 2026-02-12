@@ -112,19 +112,50 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                 if ui.button("Prev").clicked() {
                     if doc.prev_page() {
                         let _ = doc.save_metadata();
+                        doc.clear_cache(); // Clear cache when page changes
                     }
                 }
                 if ui.button("Next").clicked() {
                     if doc.next_page() {
                         let _ = doc.save_metadata();
+                        doc.clear_cache(); // Clear cache when page changes
                     }
                 }
                 if ui.button("Save Metadata").clicked() {
                     let _ = doc.persist();
                 }
-                ui.label(format!("Page: {}", doc.metadata.page));
+                if let Some(total) = doc.total_pages {
+                    ui.label(format!("Page: {} / {}", doc.metadata.page, total));
+                } else {
+                    ui.label(format!("Page: {}", doc.metadata.page));
+                }
                 ui.label(format!("Zoom: {:.2}", doc.metadata.zoom));
             });
+
+            ui.separator();
+
+            // Render the PDF page
+            if let Some(img) = doc.get_current_page_image() {
+                // Convert image::DynamicImage to egui texture
+                let size = [img.width() as usize, img.height() as usize];
+                let img_rgba = img.to_rgba8();
+                let pixels: Vec<_> = img_rgba.pixels().flat_map(|p| p.0).collect();
+                
+                let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
+                
+                let texture = ui.ctx().load_texture(
+                    format!("pdf_page_{}", doc.metadata.page),
+                    color_image,
+                    egui::TextureOptions::default()
+                );
+
+                // Display the image in a scrollable area
+                egui::ScrollArea::both().show(ui, |ui| {
+                    ui.image(&texture);
+                });
+            } else {
+                ui.label("Failed to render PDF page");
+            }
         }
     });
 }

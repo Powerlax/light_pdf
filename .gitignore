@@ -1,1 +1,10 @@
 /target
+*.tgz
+libpdfium.so
+lib/
+include/
+LICENSE
+PDFiumConfig.cmake
+VERSION
+args.gn
+licenses/

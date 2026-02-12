@@ -2,7 +2,6 @@ mod pdf;
 mod app;
 
 use eframe::egui;
-use std::path::PathBuf;
 
 fn main() {
     let options = eframe::NativeOptions::default();
