@@ -58,7 +58,11 @@ impl PdfDocument {
         };
 
         // Try to initialize pdfium for rendering
-        // We use Box::leak to create a 'static Pdfium instance that won't be dropped
+        // MEMORY LEAK NOTE: We use Box::leak to create a 'static Pdfium instance.
+        // This is required by pdfium-render's lifetime constraints - PdfDocument<'static> needs
+        // a Pdfium instance with 'static lifetime. This leaks memory (one Pdfium instance per PDF opened).
+        // TODO: Consider refactoring to use a single global/app-level Pdfium instance shared across
+        // all documents to prevent memory accumulation when opening many PDFs in one session.
         // If pdfium is not available, rendering will just not work (graceful degradation)
         let pdfium_doc = {
             std::panic::catch_unwind(|| {
@@ -205,6 +209,12 @@ impl PdfDocument {
     /// Render the current page to an image.
     /// Returns a cached or newly rendered image.
     pub fn render_page(&mut self, page_num: usize) -> Option<&image::DynamicImage> {
+        // Render configuration constants
+        // These dimensions provide a good balance between quality and performance
+        // Actual page dimensions may vary, but pdfium scales appropriately
+        const BASE_RENDER_WIDTH: i32 = 800;
+        const BASE_RENDER_HEIGHT: i32 = 1000;
+        
         // Check if already cached
         if self.page_cache.contains_key(&page_num) {
             return self.page_cache.get(&page_num);
@@ -217,10 +227,8 @@ impl PdfDocument {
             
             if let Ok(page) = pdfium_doc.pages().get(page_index as u16) {
                 // Calculate render dimensions based on zoom
-                let base_width = 800;
-                let base_height = 1000;
-                let width = (base_width as f32 * self.metadata.zoom) as i32;
-                let height = (base_height as f32 * self.metadata.zoom) as i32;
+                let width = (BASE_RENDER_WIDTH as f32 * self.metadata.zoom) as i32;
+                let height = (BASE_RENDER_HEIGHT as f32 * self.metadata.zoom) as i32;
 
                 let render_config = PdfRenderConfig::new()
                     .set_target_width(width)

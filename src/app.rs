@@ -96,6 +96,11 @@ fn render_top_menu(app: &mut MyApp, ctx: &egui::Context, _frame: &mut eframe::Fr
 }
 
 fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
+    // Zoom configuration constants
+    const ZOOM_STEP: f32 = 0.25;
+    const MIN_ZOOM: f32 = 0.25;
+    const MAX_ZOOM: f32 = 4.0;
+    
     egui::CentralPanel::default().show(ctx, |ui| {
         ui.separator();
 
@@ -131,13 +136,13 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                 
                 // Zoom controls
                 if ui.button("Zoom -").clicked() {
-                    doc.metadata.zoom = (doc.metadata.zoom - 0.25).max(0.25);
+                    doc.metadata.zoom = (doc.metadata.zoom - ZOOM_STEP).max(MIN_ZOOM);
                     let _ = doc.save_metadata();
                     doc.clear_cache(); // Clear cache when zoom changes
                 }
                 ui.label(format!("{:.0}%", doc.metadata.zoom * 100.0));
                 if ui.button("Zoom +").clicked() {
-                    doc.metadata.zoom = (doc.metadata.zoom + 0.25).min(4.0);
+                    doc.metadata.zoom = (doc.metadata.zoom + ZOOM_STEP).min(MAX_ZOOM);
                     let _ = doc.save_metadata();
                     doc.clear_cache(); // Clear cache when zoom changes
                 }
