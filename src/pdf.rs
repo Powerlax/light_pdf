@@ -6,6 +6,15 @@ use std::collections::HashMap;
 use lopdf::Document as LopdfDocument;
 use pdfium_render::prelude::*;
 
+/// Print to stderr, ignoring broken pipe errors.
+/// This is needed for WSL/Linux environments where stderr may be disconnected.
+macro_rules! safe_eprintln {
+    ($($arg:tt)*) => {
+        use std::io::Write;
+        let _ = writeln!(std::io::stderr(), $($arg)*);
+    };
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PdfMetadata {
     pub page: usize,
@@ -55,7 +64,7 @@ impl PdfDocument {
                 (Some(doc), Some(pages))
             }
             Err(e) => {
-                eprintln!("Failed to load PDF with lopdf {}: {:?}", file.display(), e);
+                safe_eprintln!("Failed to load PDF with lopdf {}: {:?}", file.display(), e);
                 (None, None)
             }
         };
@@ -74,7 +83,7 @@ impl PdfDocument {
                     None
                 }
             }).unwrap_or_else(|_| {
-                eprintln!("Pdfium library not available. PDF rendering disabled.");
+                safe_eprintln!("Pdfium library not available. PDF rendering disabled.");
                 None
             })
         };
@@ -286,7 +295,7 @@ impl PdfDocument {
                         }
                     }
                     Err(e) => {
-                        eprintln!("Failed to render page {}: {:?}", page_num, e);
+                        safe_eprintln!("Failed to render page {}: {:?}", page_num, e);
                     }
                 }
             }

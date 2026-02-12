@@ -6,7 +6,21 @@
 //! 3. System library paths
 
 use pdfium_render::prelude::*;
+use pdfium_render::prelude::PdfiumError;
 use std::path::PathBuf;
+use std::io::Write;
+use libloading::Error::DlSymUnknown;
+use std::error::Error;
+
+
+
+/// Print to stderr, ignoring broken pipe errors.
+/// This is needed for WSL/Linux environments where stderr may be disconnected.
+macro_rules! safe_eprintln {
+    ($($arg:tt)*) => {
+        let _ = writeln!(std::io::stderr(), $($arg)*);
+    };
+}
 
 #[cfg(target_os = "windows")]
 const PDFIUM_LIB_NAME: &str = "pdfium.dll";
@@ -44,7 +58,7 @@ fn extract_embedded_pdfium() -> Option<PathBuf> {
     // Use a consistent temp directory so we don't extract every time
     let temp_dir = std::env::temp_dir().join("light_pdf_libs");
     if let Err(e) = std::fs::create_dir_all(&temp_dir) {
-        eprintln!("Failed to create temp dir for pdfium: {}", e);
+        safe_eprintln!("Failed to create temp dir for pdfium: {}", e);
         return None;
     }
 
@@ -65,17 +79,17 @@ fn extract_embedded_pdfium() -> Option<PathBuf> {
     };
 
     if !needs_extract {
-        eprintln!("Using cached pdfium (size: {} bytes)", expected_version);
+        safe_eprintln!("Using cached pdfium (size: {} bytes)", expected_version);
         return Some(lib_path);
     }
 
-    eprintln!("Extracting embedded pdfium ({} bytes)...", EMBEDDED_PDFIUM.len());
+    safe_eprintln!("Extracting embedded pdfium ({} bytes)...", EMBEDDED_PDFIUM.len());
 
     // Extract the library
     match std::fs::File::create(&lib_path) {
         Ok(mut file) => {
             if let Err(e) = file.write_all(EMBEDDED_PDFIUM) {
-                eprintln!("Failed to write embedded pdfium: {}", e);
+                safe_eprintln!("Failed to write embedded pdfium: {}", e);
                 return None;
             }
 
@@ -84,7 +98,7 @@ fn extract_embedded_pdfium() -> Option<PathBuf> {
             {
                 use std::os::unix::fs::PermissionsExt;
                 if let Err(e) = std::fs::set_permissions(&lib_path, std::fs::Permissions::from_mode(0o755)) {
-                    eprintln!("Failed to set permissions on pdfium: {}", e);
+                    safe_eprintln!("Failed to set permissions on pdfium: {}", e);
                 }
             }
 
@@ -96,7 +110,7 @@ fn extract_embedded_pdfium() -> Option<PathBuf> {
             Some(lib_path)
         }
         Err(e) => {
-            eprintln!("Failed to create pdfium file: {}", e);
+            safe_eprintln!("Failed to create pdfium file: {}", e);
             None
         }
     }
@@ -112,7 +126,7 @@ fn find_pdfium_library() -> Option<PathBuf> {
     // 1. Check if embedded library should be used
     if let Some(path) = extract_embedded_pdfium() {
         if path.exists() {
-            eprintln!("Using embedded pdfium from: {}", path.display());
+            safe_eprintln!("Using embedded pdfium from: {}", path.display());
             return Some(path);
         }
     }
@@ -121,7 +135,7 @@ fn find_pdfium_library() -> Option<PathBuf> {
     if let Some(exe_dir) = get_exe_dir() {
         let lib_path = exe_dir.join(PDFIUM_LIB_NAME);
         if lib_path.exists() {
-            eprintln!("Using pdfium from exe dir: {}", lib_path.display());
+            safe_eprintln!("Using pdfium from exe dir: {}", lib_path.display());
             return Some(lib_path);
         }
     }
@@ -129,7 +143,7 @@ fn find_pdfium_library() -> Option<PathBuf> {
     // 3. Check in current directory
     let cwd_path = PathBuf::from(PDFIUM_LIB_NAME);
     if cwd_path.exists() {
-        eprintln!("Using pdfium from current dir: {}", cwd_path.display());
+        safe_eprintln!("Using pdfium from current dir: {}", cwd_path.display());
         return Some(cwd_path);
     }
 
@@ -137,7 +151,7 @@ fn find_pdfium_library() -> Option<PathBuf> {
     if let Ok(lib_dir) = std::env::var("PDFIUM_DYNAMIC_LIB_PATH") {
         let lib_path = PathBuf::from(&lib_dir).join(PDFIUM_LIB_NAME);
         if lib_path.exists() {
-            eprintln!("Using pdfium from PDFIUM_DYNAMIC_LIB_PATH: {}", lib_path.display());
+            safe_eprintln!("Using pdfium from PDFIUM_DYNAMIC_LIB_PATH: {}", lib_path.display());
             return Some(lib_path);
         }
     }
@@ -153,7 +167,7 @@ fn find_pdfium_library() -> Option<PathBuf> {
         for path in &system_paths {
             let lib_path = PathBuf::from(path).join(PDFIUM_LIB_NAME);
             if lib_path.exists() {
-                eprintln!("Using pdfium from system: {}", lib_path.display());
+                safe_eprintln!("Using pdfium from system: {}", lib_path.display());
                 return Some(lib_path);
             }
         }
@@ -163,20 +177,21 @@ fn find_pdfium_library() -> Option<PathBuf> {
 }
 
 /// Create a Pdfium instance, trying various library locations
-pub fn create_pdfium() -> Result<Pdfium, PdfiumError> {
+pub fn create_pdfium() -> Result<Pdfium,  Box<dyn Error>> {
     // Try to find and load pdfium from a specific path
     if let Some(lib_path) = find_pdfium_library() {
         let lib_path_str = lib_path.to_string_lossy().to_string();
-        eprintln!("Loading pdfium from: {}", lib_path_str);
+        safe_eprintln!("Loading pdfium from: {}", lib_path_str);
 
         // Use bind_to_library with the full path to the library file
         let bindings = Pdfium::bind_to_library(&lib_path_str)?;
         return Ok(Pdfium::new(bindings));
     }
 
-    // Fall back to default behavior (system library search)
-    eprintln!("No pdfium found at known locations, trying system default...");
-    Ok(Pdfium::default())
+    // No pdfium found - return an error instead of calling default which might panic
+    safe_eprintln!("No pdfium found at known locations. PDF rendering will be disabled.");
+    safe_eprintln!("See PDFIUM_SETUP.md for installation instructions.");
+    Err("Cant find pdfium library".into())
 }
 
 /// Create a static/leaked Pdfium instance for use with PdfDocument<'static>
@@ -187,8 +202,8 @@ pub fn create_pdfium() -> Result<Pdfium, PdfiumError> {
 pub fn create_static_pdfium() -> Option<&'static Pdfium> {
     match create_pdfium() {
         Ok(pdfium) => Some(Box::leak(Box::new(pdfium))),
-        Err(e) => {
-            eprintln!("Failed to load pdfium library: {:?}", e);
+        Err(..) => {
+            safe_eprintln!("Failed to load pdfium library");
             None
         }
     }
