@@ -156,12 +156,12 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
             } else {
                 ui.vertical_centered(|ui| {
                     ui.add_space(50.0);
-                    ui.heading("PDF Rendering Not Yet Implemented");
+                    ui.heading("PDF Loaded Successfully");
                     ui.add_space(20.0);
                     ui.label("This version uses a pure Rust PDF parser with no platform dependencies.");
-                    ui.label("However, PDF page rendering is not yet available.");
+                    ui.label("PDF page rendering is not yet available.");
                     ui.add_space(10.0);
-                    ui.label("The application can still:");
+                    ui.label("The application can:");
                     ui.label("  ✓ Load and parse PDF files");
                     ui.label("  ✓ Extract metadata (page count, etc.)");
                     ui.label("  ✓ Navigate between pages");

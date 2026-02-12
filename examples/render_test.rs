@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use light_pdf::pdf::PdfDocument;
 
-// Simple example to test PDF loading without rendering
+// Simple example to test PDF loading
 // NOTE: This example must be run from the repository root directory:
 //       cargo run --example render_test
 fn main() {
@@ -28,13 +28,9 @@ fn main() {
     if let Some(total) = doc.total_pages {
         println!("\n✓ Successfully detected {} page(s) using lopdf!", total);
         
-        println!("\nNote: PDF rendering to images is not yet implemented with lopdf.");
-        println!("lopdf is a pure Rust PDF parser that doesn't require external libraries.");
-        println!("Page rendering requires complex functionality like:");
-        println!("  - Font rendering and text layout");
-        println!("  - Vector graphics rasterization");
-        println!("  - PostScript/PDF operators interpretation");
-        println!("\nThe app can still:");
+        println!("\nNote: PDF raster rendering (to images) is not available.");
+        println!("lopdf is a pure Rust PDF parser that doesn't require external libraries (.so/.dll files).");
+        println!("\nThe app provides:");
         println!("  ✓ Load and parse PDFs");
         println!("  ✓ Extract metadata (page count, etc.)");
         println!("  ✓ Navigate between pages");
@@ -62,7 +58,7 @@ fn main() {
         }
         
         println!("\n✓ All tests passed with lopdf!");
-        println!("✓ No external libraries (.so files) required!");
+        println!("✓ No external libraries (.so or .dll files) required!");
     } else {
         println!("\n✗ Failed to load PDF document");
         std::process::exit(1);

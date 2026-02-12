@@ -42,7 +42,7 @@ impl PdfDocument {
             .and_then(|mf| Self::load_metadata_from(mf).ok())
             .unwrap_or_default();
 
-        // Try to load the document using lopdf
+        // Try to load the document using lopdf for metadata
         let (document, total_pages) = match LopdfDocument::load(&file) {
             Ok(doc) => {
                 // Get page count from the document
@@ -50,7 +50,7 @@ impl PdfDocument {
                 (Some(doc), Some(pages))
             }
             Err(e) => {
-                eprintln!("Failed to load PDF {}: {:?}", file.display(), e);
+                eprintln!("Failed to load PDF with lopdf {}: {:?}", file.display(), e);
                 (None, None)
             }
         };
@@ -186,22 +186,11 @@ impl PdfDocument {
             .unwrap_or_else(|| "Untitled".to_string())
     }
 
-    /// Render the current page to an image. 
-    /// Note: Rendering is not yet implemented with lopdf (pure Rust parser).
-    /// This method currently returns None until a pure Rust rendering solution is integrated.
-    pub fn render_page(&mut self, _: usize) -> Option<&image::DynamicImage> {
-        // lopdf is a pure Rust PDF parser but doesn't provide rendering to images
-        // Rendering PDFs to raster images in pure Rust is complex and requires:
-        // - Font rendering
-        // - Vector graphics rasterization  
-        // - PostScript/PDF operators interpretation
-        // 
-        // Options for future implementation:
-        // 1. Use pdf-rs/pdf_render (experimental, not on crates.io yet)
-        // 2. Implement basic rendering for simple PDFs
-        // 3. Extract text and show that instead
-        // 
-        // For now, we return None to maintain API compatibility
+    /// Render the current page to an image.
+    /// Note: Rendering is not yet implemented (requires pdfium or similar).
+    /// Returns None until rendering is added.
+    pub fn render_page(&mut self, _page_num: usize) -> Option<&image::DynamicImage> {
+        // Rendering not implemented yet
         None
     }
 
