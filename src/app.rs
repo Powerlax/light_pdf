@@ -153,17 +153,33 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                 egui::ScrollArea::both().show(ui, |ui| {
                     ui.image(&texture);
                 });
+            } else if let Some(text) = doc.get_current_page_text() {
+                // Show extracted text if rendering is not available
+                ui.separator();
+                ui.heading("Page Content (Text Extraction)");
+                ui.label("Pure Rust text extraction - no external dependencies required!");
+                ui.separator();
+                
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.add(
+                        egui::TextEdit::multiline(&mut text.as_str())
+                            .font(egui::TextStyle::Monospace)
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(30)
+                    );
+                });
             } else {
                 ui.vertical_centered(|ui| {
                     ui.add_space(50.0);
-                    ui.heading("PDF Rendering Not Yet Implemented");
+                    ui.heading("PDF Loaded Successfully");
                     ui.add_space(20.0);
                     ui.label("This version uses a pure Rust PDF parser with no platform dependencies.");
-                    ui.label("However, PDF page rendering is not yet available.");
+                    ui.label("Text extraction from this PDF page failed or no text content found.");
                     ui.add_space(10.0);
-                    ui.label("The application can still:");
+                    ui.label("The application can:");
                     ui.label("  ✓ Load and parse PDF files");
                     ui.label("  ✓ Extract metadata (page count, etc.)");
+                    ui.label("  ✓ Extract text content from pages");
                     ui.label("  ✓ Navigate between pages");
                     ui.label("  ✓ Save and load page position and zoom level");
                     ui.add_space(20.0);
