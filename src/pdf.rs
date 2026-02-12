@@ -47,7 +47,7 @@ impl PdfDocument {
             .unwrap_or_default();
 
         // Try to initialize Pdfium and load the document
-        let mut pdfium = Pdfium::default();
+        let pdfium = Pdfium::default();
         let (document, total_pages) = match pdfium.load_pdf_from_file(&file, None) {
             Ok(doc) => {
                 let pages = doc.pages().len() as usize;
