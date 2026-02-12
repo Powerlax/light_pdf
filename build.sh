@@ -158,3 +158,5 @@ fi
 
 echo "Note: Both builds use pdfium for PDF rendering."
 echo "Pdfium libraries have been downloaded to ./libs/{linux,windows}/"
+cp target/x86_64-pc-windows-gnu/release/light_pdf.exe /mnt/c/Users/innav
+/mnt/c/Users/innav/light_pdf.exe
