@@ -1,12 +1,13 @@
 #!/bin/bash
 # Build script for light_pdf with pdfium installation
+# Supports building for both Linux and Windows (from WSL/Linux)
 
 set -e
 
 echo "=== Light PDF Build Script ==="
 echo ""
 
-# Function to detect OS
+# Function to detect host OS
 detect_os() {
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         echo "linux"
@@ -19,115 +20,141 @@ detect_os() {
     fi
 }
 
-OS=$(detect_os)
-echo "Detected OS: $OS"
+HOST_OS=$(detect_os)
+echo "Detected Host OS: $HOST_OS"
 echo ""
 
-# Check and install pdfium if needed
-echo "Checking for pdfium library..."
+# Parse command line arguments
+BUILD_LINUX=true
+BUILD_WINDOWS=false
 
-install_pdfium() {
-    case "$OS" in
-        "linux")
-            echo "Installing pdfium for Linux..."
-            # Check if apt is available
-            if command -v apt-get &> /dev/null; then
-                echo "Note: libpdfium is not in standard apt repositories."
-                echo "Downloading pre-built pdfium library..."
-                
-                # Create libs directory
-                mkdir -p libs
-                cd libs
-                
-                # Download pdfium from Google's releases
-                PDFIUM_URL="https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F6721/pdfium-linux-x64.tgz"
-                if [ ! -f "pdfium-linux-x64.tgz" ]; then
-                    echo "Downloading pdfium..."
-                    curl -L "$PDFIUM_URL" -o pdfium-linux-x64.tgz
-                fi
-                
-                # Extract
-                if [ ! -d "pdfium-linux-x64" ]; then
-                    echo "Extracting pdfium..."
-                    tar -xzf pdfium-linux-x64.tgz -C .
-                fi
-                
-                # Set environment variable for build
-                export PDFIUM_DYNAMIC_LIB_PATH="$(pwd)/lib"
-                echo "Pdfium installed to: $(pwd)/lib"
-                cd ..
-            fi
-            ;;
-        "macos")
-            echo "Installing pdfium for macOS..."
-            if command -v brew &> /dev/null; then
-                # Homebrew doesn't have pdfium, so download manually
-                mkdir -p libs
-                cd libs
-                
-                PDFIUM_URL="https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F6721/pdfium-mac-arm64.tgz"
-                if [ ! -f "pdfium-mac.tgz" ]; then
-                    echo "Downloading pdfium..."
-                    curl -L "$PDFIUM_URL" -o pdfium-mac.tgz
-                fi
-                
-                if [ ! -d "pdfium-mac" ]; then
-                    echo "Extracting pdfium..."
-                    tar -xzf pdfium-mac.tgz -C .
-                fi
-                
-                export PDFIUM_DYNAMIC_LIB_PATH="$(pwd)/lib"
-                echo "Pdfium installed to: $(pwd)/lib"
-                cd ..
-            fi
-            ;;
-        "windows")
-            echo "Installing pdfium for Windows..."
-            mkdir -p libs
-            cd libs
-            
-            PDFIUM_URL="https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F6721/pdfium-win-x64.tgz"
-            if [ ! -f "pdfium-win.tgz" ]; then
-                echo "Downloading pdfium..."
-                curl -L "$PDFIUM_URL" -o pdfium-win.tgz
-            fi
-            
-            if [ ! -d "pdfium-win" ]; then
-                echo "Extracting pdfium..."
-                tar -xzf pdfium-win.tgz -C .
-            fi
-            
-            export PDFIUM_DYNAMIC_LIB_PATH="$(pwd)/bin"
-            echo "Pdfium installed to: $(pwd)/bin"
-            cd ..
-            ;;
-        *)
-            echo "Unknown OS. Please install pdfium manually."
-            exit 1
-            ;;
-    esac
-}
+if [[ "$1" == "--windows-only" ]]; then
+    BUILD_LINUX=false
+    BUILD_WINDOWS=true
+elif [[ "$1" == "--linux-only" ]]; then
+    BUILD_LINUX=true
+    BUILD_WINDOWS=false
+else
+    # Default: build both on Linux/WSL
+    if [[ "$HOST_OS" == "linux" ]]; then
+        BUILD_WINDOWS=true
+    fi
+fi
 
-# Install pdfium
-install_pdfium
-
-echo ""
-echo "Building with pdfium support..."
+echo "Build configuration:"
+echo "  Linux binary: $BUILD_LINUX"
+echo "  Windows binary: $BUILD_WINDOWS"
 echo ""
 
-# Run tests
-echo "Running tests..."
+# Check and install dependencies for cross-compilation
+if [[ "$BUILD_WINDOWS" == true ]] && [[ "$HOST_OS" == "linux" ]]; then
+    echo "Checking Windows cross-compilation dependencies..."
+    
+    # Check if mingw-w64 is installed
+    if ! command -v x86_64-w64-mingw32-gcc &> /dev/null; then
+        echo "Warning: mingw-w64 not found. Installing..."
+        echo "You may need to run: sudo apt-get install mingw-w64"
+        if command -v apt-get &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y mingw-w64 || echo "Please install mingw-w64 manually"
+        fi
+    else
+        echo "✓ mingw-w64 found"
+    fi
+    
+    # Check if Windows target is installed
+    if ! rustup target list --installed | grep -q "x86_64-pc-windows-gnu"; then
+        echo "Installing Windows target for Rust..."
+        rustup target add x86_64-pc-windows-gnu
+    else
+        echo "✓ Windows target already installed"
+    fi
+    echo ""
+fi
+
+# Download pdfium libraries
+echo "Downloading pdfium libraries..."
+mkdir -p libs/linux libs/windows
+
+# Download Linux pdfium
+if [[ "$BUILD_LINUX" == true ]]; then
+    echo "Downloading pdfium for Linux..."
+    cd libs/linux
+    PDFIUM_URL="https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F6721/pdfium-linux-x64.tgz"
+    if [ ! -f "pdfium-linux-x64.tgz" ]; then
+        curl -L "$PDFIUM_URL" -o pdfium-linux-x64.tgz
+    fi
+    if [ ! -d "lib" ]; then
+        echo "Extracting Linux pdfium..."
+        tar -xzf pdfium-linux-x64.tgz
+    fi
+    echo "✓ Linux pdfium ready at: $(pwd)/lib"
+    cd ../..
+fi
+
+# Download Windows pdfium
+if [[ "$BUILD_WINDOWS" == true ]]; then
+    echo "Downloading pdfium for Windows..."
+    cd libs/windows
+    PDFIUM_URL="https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F6721/pdfium-win-x64.tgz"
+    if [ ! -f "pdfium-win-x64.tgz" ]; then
+        curl -L "$PDFIUM_URL" -o pdfium-win-x64.tgz
+    fi
+    if [ ! -d "bin" ]; then
+        echo "Extracting Windows pdfium..."
+        tar -xzf pdfium-win-x64.tgz
+    fi
+    echo "✓ Windows pdfium ready at: $(pwd)/bin"
+    cd ../..
+fi
+
+echo ""
+echo "=== Running Tests ==="
 cargo test
 
 echo ""
-echo "Building release version..."
-cargo build --release
+echo "=== Building Binaries ==="
+
+# Build Linux binary
+if [[ "$BUILD_LINUX" == true ]]; then
+    echo ""
+    echo "Building Linux binary..."
+    export PDFIUM_DYNAMIC_LIB_PATH="$(pwd)/libs/linux/lib"
+    cargo build --release
+    echo "✓ Linux binary built: target/release/light_pdf"
+fi
+
+# Build Windows binary
+if [[ "$BUILD_WINDOWS" == true ]]; then
+    echo ""
+    echo "Building Windows binary..."
+    export PDFIUM_DYNAMIC_LIB_PATH="$(pwd)/libs/windows/bin"
+    cargo build --release --target x86_64-pc-windows-gnu
+    
+    # Copy the pdfium DLL next to the executable
+    if [ -f "libs/windows/bin/pdfium.dll" ]; then
+        cp libs/windows/bin/pdfium.dll target/x86_64-pc-windows-gnu/release/
+        echo "✓ Copied pdfium.dll to output directory"
+    fi
+    echo "✓ Windows binary built: target/x86_64-pc-windows-gnu/release/light_pdf.exe"
+fi
 
 echo ""
 echo "=== Build Complete ==="
-echo "Binary location: target/release/light_pdf"
 echo ""
-echo "Note: This build uses pdfium for PDF rendering."
-echo "The pdfium library has been downloaded to ./libs/"
-echo "Make sure to set LD_LIBRARY_PATH (Linux) or DYLD_LIBRARY_PATH (macOS)"
-echo "when running the application, or copy the library to a system location."
+
+if [[ "$BUILD_LINUX" == true ]]; then
+    echo "Linux binary:"
+    echo "  Location: target/release/light_pdf"
+    echo "  Runtime: Set LD_LIBRARY_PATH=./libs/linux/lib or copy pdfium library to system location"
+    echo ""
+fi
+
+if [[ "$BUILD_WINDOWS" == true ]]; then
+    echo "Windows binary:"
+    echo "  Location: target/x86_64-pc-windows-gnu/release/light_pdf.exe"
+    echo "  Runtime: pdfium.dll is included in the same directory"
+    echo ""
+fi
+
+echo "Note: Both builds use pdfium for PDF rendering."
+echo "Pdfium libraries have been downloaded to ./libs/{linux,windows}/"

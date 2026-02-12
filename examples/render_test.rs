@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use light_pdf::pdf::PdfDocument;
 
-// Simple example to test PDF loading and text extraction
+// Simple example to test PDF loading
 // NOTE: This example must be run from the repository root directory:
 //       cargo run --example render_test
 fn main() {
@@ -14,7 +14,7 @@ fn main() {
         std::process::exit(1);
     }
     
-    println!("Testing PDF loading and text extraction with lopdf (pure Rust)...");
+    println!("Testing PDF loading with lopdf (pure Rust)...");
     println!("Loading PDF: {}", test_pdf.display());
     
     // Create PdfDocument using lopdf
@@ -28,35 +28,13 @@ fn main() {
     if let Some(total) = doc.total_pages {
         println!("\n✓ Successfully detected {} page(s) using lopdf!", total);
         
-        println!("\nNote: PDF raster rendering (to images) is not available with lopdf.");
+        println!("\nNote: PDF raster rendering (to images) is not available.");
         println!("lopdf is a pure Rust PDF parser that doesn't require external libraries (.so/.dll files).");
         println!("\nThe app provides:");
         println!("  ✓ Load and parse PDFs");
         println!("  ✓ Extract metadata (page count, etc.)");
-        println!("  ✓ Extract text content from pages (NEW!)");
         println!("  ✓ Navigate between pages");
         println!("  ✓ Save/load page position and zoom");
-        
-        // Test text extraction
-        println!("\n--- Testing text extraction ---");
-        for page in 1..=total.min(3) {
-            println!("\nExtracting text from page {}...", page);
-            if let Some(text) = doc.extract_text(page) {
-                let preview = text.chars().take(200).collect::<String>();
-                let preview = preview.trim();
-                if !preview.is_empty() {
-                    println!("✓ Extracted text (first 200 chars):");
-                    println!("{}", preview);
-                    if text.len() > 200 {
-                        println!("... ({} more characters)", text.len() - 200);
-                    }
-                } else {
-                    println!("Page {} appears to have no text content", page);
-                }
-            } else {
-                println!("✗ Failed to extract text from page {}", page);
-            }
-        }
         
         // Test navigation
         println!("\n--- Testing navigation ---");
@@ -81,7 +59,6 @@ fn main() {
         
         println!("\n✓ All tests passed with lopdf!");
         println!("✓ No external libraries (.so or .dll files) required!");
-        println!("✓ Text extraction working!");
     } else {
         println!("\n✗ Failed to load PDF document");
         std::process::exit(1);

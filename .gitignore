@@ -8,3 +8,5 @@ PDFiumConfig.cmake
 VERSION
 args.gn
 licenses/
+/libs/
+build_output.log

@@ -3,9 +3,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
-use lopdf::{Document as LopdfDocument, Object, ObjectId};
-use pdfium_render::prelude::*;
-use pdfium_render::pdfium::Pdfium;
+use lopdf::Document as LopdfDocument;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PdfMetadata {
@@ -25,9 +23,7 @@ pub struct PdfDocument {
     pub metadata: PdfMetadata,
     pub total_pages: Option<usize>,
     document: Option<LopdfDocument>,
-    pdfium_doc: Option<pdfium_render::document::PdfDocument<'static>>,
     page_cache: HashMap<usize, image::DynamicImage>,
-    text_cache: HashMap<usize, String>,
 }
 
 impl PdfDocument {
@@ -59,28 +55,13 @@ impl PdfDocument {
             }
         };
 
-        // Try to load with pdfium for rendering
-        let pdfium_doc = match Pdfium::new(Pdfium::bind_to_statically_linked_library().unwrap()) {
-            pdfium => {
-                match pdfium.load_pdf_from_file(&file, None) {
-                    Ok(doc) => Some(doc),
-                    Err(e) => {
-                        eprintln!("Failed to load PDF with pdfium {}: {:?}", file.display(), e);
-                        None
-                    }
-                }
-            }
-        };
-
         Self {
             file,
             metadata_file,
             metadata,
             total_pages,
             document,
-            pdfium_doc,
             page_cache: HashMap::new(),
-            text_cache: HashMap::new(),
         }
     }
 
@@ -205,188 +186,12 @@ impl PdfDocument {
             .unwrap_or_else(|| "Untitled".to_string())
     }
 
-    /// Render the current page to an image using pdfium (statically linked).
-    /// Returns a reference to the cached image, or None if rendering fails.
-    pub fn render_page(&mut self, page_num: usize) -> Option<&image::DynamicImage> {
-        // Check cache first
-        if self.page_cache.contains_key(&page_num) {
-            return self.page_cache.get(&page_num);
-        }
-
-        // Get the pdfium document
-        let pdfium_doc = self.pdfium_doc.as_ref()?;
-        
-        // Get the page (pdfium uses 0-based indexing)
-        let page = pdfium_doc.pages().get(page_num.saturating_sub(1) as u16).ok()?;
-        
-        // Render the page at a reasonable DPI (e.g., 150 DPI for screen display)
-        let render_config = PdfRenderConfig::new()
-            .set_target_width(1200)  // Render at ~1200px width
-            .rotate_if_landscape(PdfPageRenderRotation::None, false);
-        
-        let bitmap = page.render_with_config(&render_config).ok()?;
-        
-        // Convert pdfium bitmap to image::DynamicImage
-        let width = bitmap.width() as u32;
-        let height = bitmap.height() as u32;
-        
-        // Get RGBA pixels from bitmap
-        let buffer = bitmap.as_bytes();
-        
-        // Create an image from the buffer
-        let img = match image::RgbaImage::from_raw(width, height, buffer.to_vec()) {
-            Some(img) => image::DynamicImage::ImageRgba8(img),
-            None => return None,
-        };
-        
-        // Cache the rendered page
-        self.page_cache.insert(page_num, img);
-        self.page_cache.get(&page_num)
-    }
-
-    /// Extract text content from a specific page using lopdf.
-    /// This provides a pure Rust text extraction without external dependencies.
-    /// Returns the extracted text or None if extraction fails.
-    pub fn extract_text(&mut self, page_num: usize) -> Option<String> {
-        // Check cache first
-        if let Some(cached) = self.text_cache.get(&page_num) {
-            return Some(cached.clone());
-        }
-
-        let doc = self.document.as_ref()?;
-        
-        // Get the page IDs
-        let pages = doc.get_pages();
-        let page_id = pages.get(&(page_num as u32))?;
-        
-        // Extract text from the page
-        let text = Self::extract_text_from_page(doc, *page_id).ok()?;
-        
-        // Cache the result
-        self.text_cache.insert(page_num, text.clone());
-        
-        Some(text)
-    }
-
-    /// Helper function to extract text from a page object
-    fn extract_text_from_page(doc: &LopdfDocument, page_id: ObjectId) -> Result<String, lopdf::Error> {
-        let mut text = String::new();
-        
-        // Get the page object
-        let page = doc.get_object(page_id)?;
-        
-        // Get the Contents of the page
-        let contents = match page.as_dict()?.get(b"Contents") {
-            Ok(obj) => obj,
-            Err(_) => return Ok(text), // No content in this page
-        };
-        
-        // Contents can be a single stream or an array of streams
-        let content_streams = match contents {
-            Object::Reference(ref_id) => vec![*ref_id],
-            Object::Array(arr) => {
-                arr.iter()
-                    .filter_map(|obj| {
-                        if let Object::Reference(ref_id) = obj {
-                            Some(*ref_id)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
-            }
-            _ => vec![],
-        };
-        
-        // Process each content stream
-        for stream_id in content_streams {
-            if let Ok(stream) = doc.get_object(stream_id) {
-                if let Ok(stream_obj) = stream.as_stream() {
-                    if let Ok(decoded) = stream_obj.decompressed_content() {
-                        // Parse the content stream for text
-                        text.push_str(&Self::parse_content_stream(&decoded));
-                    }
-                }
-            }
-        }
-        
-        Ok(text)
-    }
-
-    /// Parse a PDF content stream and extract text
-    fn parse_content_stream(content: &[u8]) -> String {
-        let mut text = String::new();
-        let content_str = String::from_utf8_lossy(content);
-        
-        // Look for text between parentheses in Tj or TJ operators
-        // This is a simplified parser that handles basic text extraction
-        let mut in_text = false;
-        let mut buffer = String::new();
-        let mut escape_next = false;
-        
-        for line in content_str.lines() {
-            let line = line.trim();
-            
-            // BT marks beginning of text object
-            if line.contains("BT") {
-                in_text = true;
-                continue;
-            }
-            
-            // ET marks end of text object  
-            if line.contains("ET") {
-                in_text = false;
-                continue;
-            }
-            
-            if !in_text {
-                continue;
-            }
-            
-            // Look for text show operators: Tj, TJ, ', "
-            if line.contains("Tj") || line.contains("TJ") || line.ends_with('\'') || line.contains('"') {
-                // Extract text between parentheses
-                let chars: Vec<char> = line.chars().collect();
-                let mut i = 0;
-                while i < chars.len() {
-                    if chars[i] == '(' && !escape_next {
-                        // Start of text string
-                        buffer.clear();
-                        i += 1;
-                        while i < chars.len() {
-                            if chars[i] == '\\' && !escape_next {
-                                escape_next = true;
-                                i += 1;
-                                continue;
-                            }
-                            if chars[i] == ')' && !escape_next {
-                                // End of text string
-                                text.push_str(&buffer);
-                                text.push(' ');
-                                break;
-                            }
-                            buffer.push(chars[i]);
-                            escape_next = false;
-                            i += 1;
-                        }
-                    }
-                    escape_next = false;
-                    i += 1;
-                }
-            }
-            
-            // T* operator indicates new line
-            if line.contains("T*") {
-                text.push('\n');
-            }
-        }
-        
-        text
-    }
-
-    /// Get the extracted text for the current page
-    pub fn get_current_page_text(&mut self) -> Option<String> {
-        self.extract_text(self.metadata.page)
+    /// Render the current page to an image.
+    /// Note: Rendering is not yet implemented (requires pdfium or similar).
+    /// Returns None until rendering is added.
+    pub fn render_page(&mut self, _page_num: usize) -> Option<&image::DynamicImage> {
+        // Rendering not implemented yet
+        None
     }
 
     /// Get the currently rendered page as an image.
@@ -397,7 +202,6 @@ impl PdfDocument {
     /// Clear the page cache to free memory.
     pub fn clear_cache(&mut self) {
         self.page_cache.clear();
-        self.text_cache.clear();
     }
 }
 
@@ -451,44 +255,5 @@ mod tests {
     fn display_name_works() {
         let doc = PdfDocument::new("/tmp/some/long-name.pdf", None::<&str>);
         assert!(doc.display_name().contains("long-name"));
-    }
-
-    #[test]
-    fn text_extraction_works() {
-        // Use the existing multipage.pdf which contains "Page 1", "Page 2", etc. text
-        let pdf_path = PathBuf::from("multipage.pdf");
-        
-        if !pdf_path.exists() {
-            // Skip test if file doesn't exist (e.g., when running from different directory)
-            println!("Skipping text_extraction_works test - multipage.pdf not found");
-            return;
-        }
-        
-        let mut doc = PdfDocument::new(&pdf_path, None::<&PathBuf>);
-        
-        // Check that PDF was loaded
-        assert_eq!(doc.total_pages, Some(3));
-        
-        // Extract text from page 1
-        let text = doc.extract_text(1);
-        assert!(text.is_some(), "Text extraction should succeed");
-        
-        let text = text.unwrap();
-        assert!(text.contains("Page 1"), "Extracted text should contain 'Page 1', got: {}", text);
-        
-        // Test caching - second call should use cache
-        let text2 = doc.extract_text(1);
-        assert!(text2.is_some());
-        assert_eq!(text, text2.unwrap());
-        
-        // Extract from page 2
-        let text_page2 = doc.extract_text(2);
-        assert!(text_page2.is_some());
-        assert!(text_page2.unwrap().contains("Page 2"));
-        
-        // Test clear_cache
-        doc.clear_cache();
-        let text3 = doc.extract_text(1);
-        assert!(text3.is_some());
     }
 }
