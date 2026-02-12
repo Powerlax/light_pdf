@@ -58,16 +58,18 @@ impl PdfDocument {
         };
 
         // Try to initialize pdfium for rendering
+        // Uses pdfium_loader to find/extract the pdfium library
         // MEMORY LEAK NOTE: We use Box::leak to create a 'static Pdfium instance.
         // This is required by pdfium-render's lifetime constraints - PdfDocument<'static> needs
-        // a Pdfium instance with 'static lifetime. This leaks memory (one Pdfium instance per PDF opened).
-        // TODO: Consider refactoring to use a single global/app-level Pdfium instance shared across
-        // all documents to prevent memory accumulation when opening many PDFs in one session.
+        // a Pdfium instance with 'static lifetime.
         // If pdfium is not available, rendering will just not work (graceful degradation)
         let pdfium_doc = {
             std::panic::catch_unwind(|| {
-                let pdfium = Box::leak(Box::new(Pdfium::default()));
-                pdfium.load_pdf_from_file(&file, None).ok()
+                if let Some(pdfium) = crate::pdfium_loader::create_static_pdfium() {
+                    pdfium.load_pdf_from_file(&file, None).ok()
+                } else {
+                    None
+                }
             }).unwrap_or_else(|_| {
                 eprintln!("Pdfium library not available. PDF rendering disabled.");
                 None
