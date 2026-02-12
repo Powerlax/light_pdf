@@ -96,6 +96,11 @@ fn render_top_menu(app: &mut MyApp, ctx: &egui::Context, _frame: &mut eframe::Fr
 }
 
 fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
+    // Zoom configuration constants
+    const ZOOM_STEP: f32 = 0.25;
+    const MIN_ZOOM: f32 = 0.25;
+    const MAX_ZOOM: f32 = 4.0;
+    
     egui::CentralPanel::default().show(ctx, |ui| {
         ui.separator();
 
@@ -121,15 +126,31 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                         doc.clear_cache(); // Clear cache when page changes
                     }
                 }
-                if ui.button("Save Metadata").clicked() {
-                    let _ = doc.persist();
-                }
                 if let Some(total) = doc.total_pages {
                     ui.label(format!("Page: {} / {}", doc.metadata.page, total));
                 } else {
                     ui.label(format!("Page: {}", doc.metadata.page));
                 }
-                ui.label(format!("Zoom: {:.2}", doc.metadata.zoom));
+                
+                ui.separator();
+                
+                // Zoom controls
+                if ui.button("Zoom -").clicked() {
+                    doc.metadata.zoom = (doc.metadata.zoom - ZOOM_STEP).max(MIN_ZOOM);
+                    let _ = doc.save_metadata();
+                    doc.clear_cache(); // Clear cache when zoom changes
+                }
+                ui.label(format!("{:.0}%", doc.metadata.zoom * 100.0));
+                if ui.button("Zoom +").clicked() {
+                    doc.metadata.zoom = (doc.metadata.zoom + ZOOM_STEP).min(MAX_ZOOM);
+                    let _ = doc.save_metadata();
+                    doc.clear_cache(); // Clear cache when zoom changes
+                }
+                if ui.button("100%").clicked() {
+                    doc.metadata.zoom = 1.0;
+                    let _ = doc.save_metadata();
+                    doc.clear_cache(); // Clear cache when zoom changes
+                }
             });
 
             ui.separator();
@@ -158,8 +179,8 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                     ui.add_space(50.0);
                     ui.heading("PDF Loaded Successfully");
                     ui.add_space(20.0);
-                    ui.label("This version uses a pure Rust PDF parser with no platform dependencies.");
-                    ui.label("PDF page rendering is not yet available.");
+                    ui.label("PDF rendering requires the pdfium library.");
+                    ui.label("See PDFIUM_SETUP.md for installation instructions.");
                     ui.add_space(10.0);
                     ui.label("The application can:");
                     ui.label("  ✓ Load and parse PDF files");
@@ -167,7 +188,7 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                     ui.label("  ✓ Navigate between pages");
                     ui.label("  ✓ Save and load page position and zoom level");
                     ui.add_space(20.0);
-                    ui.label("✓ Works on all platforms without external dependencies!");
+                    ui.label("📚 Install pdfium to enable PDF page rendering");
                 });
             }
         }

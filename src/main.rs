@@ -1,5 +1,6 @@
 mod pdf;
 mod app;
+mod pdfium_loader;
 
 use eframe::egui;
 
