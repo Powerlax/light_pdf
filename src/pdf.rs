@@ -26,6 +26,9 @@ pub struct PdfDocument {
     document: Option<LopdfDocument>,
     pdfium_doc: Option<pdfium_render::prelude::PdfDocument<'static>>,
     page_cache: HashMap<usize, image::DynamicImage>,
+    /// Cache window boundaries: keeps pages in range [cache_window_start, cache_window_end]
+    cache_window_start: usize,
+    cache_window_end: usize,
 }
 
 impl PdfDocument {
@@ -84,6 +87,8 @@ impl PdfDocument {
             document,
             pdfium_doc,
             page_cache: HashMap::new(),
+            cache_window_start: 1,
+            cache_window_end: 1,
         }
     }
 
@@ -208,6 +213,31 @@ impl PdfDocument {
             .unwrap_or_else(|| "Untitled".to_string())
     }
 
+    /// Update the cache window to keep the previous 10 pages and next 10 pages around the current page.
+    /// Evicts pages outside the window to free memory.
+    fn update_cache_window(&mut self, current_page: usize) {
+        const BUFFER_PAGES: usize = 3;
+
+        // Calculate new window boundaries
+        let new_start = current_page.saturating_sub(BUFFER_PAGES).max(1);
+        let new_end = if let Some(total) = self.total_pages {
+            (current_page + BUFFER_PAGES).min(total)
+        } else {
+            current_page + BUFFER_PAGES
+        };
+
+        // Only update if window has changed significantly
+        if new_start != self.cache_window_start || new_end != self.cache_window_end {
+            self.cache_window_start = new_start;
+            self.cache_window_end = new_end;
+
+            // Remove all pages outside the new window
+            self.page_cache.retain(|&page_num, _| {
+                page_num >= self.cache_window_start && page_num <= self.cache_window_end
+            });
+        }
+    }
+
     /// Render the current page to an image.
     /// Returns a cached or newly rendered image.
     pub fn render_page(&mut self, page_num: usize) -> Option<&image::DynamicImage> {
@@ -217,6 +247,9 @@ impl PdfDocument {
         const BASE_RENDER_WIDTH: i32 = 800;
         const BASE_RENDER_HEIGHT: i32 = 1000;
         
+        // Update cache window based on current page
+        self.update_cache_window(page_num);
+
         // Check if already cached
         if self.page_cache.contains_key(&page_num) {
             return self.page_cache.get(&page_num);

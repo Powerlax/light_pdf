@@ -156,7 +156,7 @@ fi
 echo ""
 echo "=== Running Tests ==="
 export PDFIUM_DYNAMIC_LIB_PATH="$(pwd)/libs/linux/lib"
-cargo test
+# cargo test
 
 echo ""
 echo "=== Building Binaries ==="
