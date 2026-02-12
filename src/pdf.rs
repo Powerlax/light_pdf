@@ -59,9 +59,15 @@ impl PdfDocument {
 
         // Try to initialize pdfium for rendering
         // We use Box::leak to create a 'static Pdfium instance that won't be dropped
+        // If pdfium is not available, rendering will just not work (graceful degradation)
         let pdfium_doc = {
-            let pdfium = Box::leak(Box::new(Pdfium::default()));
-            pdfium.load_pdf_from_file(&file, None).ok()
+            std::panic::catch_unwind(|| {
+                let pdfium = Box::leak(Box::new(Pdfium::default()));
+                pdfium.load_pdf_from_file(&file, None).ok()
+            }).unwrap_or_else(|_| {
+                eprintln!("Pdfium library not available. PDF rendering disabled.");
+                None
+            })
         };
 
         Self {
