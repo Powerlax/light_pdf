@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use lopdf::Document as LopdfDocument;
+use pdfium_render::prelude::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PdfMetadata {
@@ -15,12 +18,14 @@ impl Default for PdfMetadata {
     }
 }
 
-#[derive(Debug, Clone)]
 pub struct PdfDocument {
     pub file: PathBuf,
     pub metadata_file: Option<PathBuf>,
     pub metadata: PdfMetadata,
     pub total_pages: Option<usize>,
+    document: Option<LopdfDocument>,
+    pdfium_doc: Option<pdfium_render::prelude::PdfDocument<'static>>,
+    page_cache: HashMap<usize, image::DynamicImage>,
 }
 
 impl PdfDocument {
@@ -39,11 +44,46 @@ impl PdfDocument {
             .and_then(|mf| Self::load_metadata_from(mf).ok())
             .unwrap_or_default();
 
+        // Try to load the document using lopdf for metadata
+        let (document, total_pages) = match LopdfDocument::load(&file) {
+            Ok(doc) => {
+                // Get page count from the document
+                let pages = doc.get_pages().len();
+                (Some(doc), Some(pages))
+            }
+            Err(e) => {
+                eprintln!("Failed to load PDF with lopdf {}: {:?}", file.display(), e);
+                (None, None)
+            }
+        };
+
+        // Try to initialize pdfium for rendering
+        // Uses pdfium_loader to find/extract the pdfium library
+        // MEMORY LEAK NOTE: We use Box::leak to create a 'static Pdfium instance.
+        // This is required by pdfium-render's lifetime constraints - PdfDocument<'static> needs
+        // a Pdfium instance with 'static lifetime.
+        // If pdfium is not available, rendering will just not work (graceful degradation)
+        let pdfium_doc = {
+            std::panic::catch_unwind(|| {
+                if let Some(pdfium) = crate::pdfium_loader::create_static_pdfium() {
+                    pdfium.load_pdf_from_file(&file, None).ok()
+                } else {
+                    None
+                }
+            }).unwrap_or_else(|_| {
+                eprintln!("Pdfium library not available. PDF rendering disabled.");
+                None
+            })
+        };
+
         Self {
             file,
             metadata_file,
             metadata,
-            total_pages: None,
+            total_pages,
+            document,
+            pdfium_doc,
+            page_cache: HashMap::new(),
         }
     }
 
@@ -166,6 +206,70 @@ impl PdfDocument {
             .map(|s| s.to_string())
             .or_else(|| self.file.file_name().and_then(|s| s.to_str()).map(|s| s.to_string()))
             .unwrap_or_else(|| "Untitled".to_string())
+    }
+
+    /// Render the current page to an image.
+    /// Returns a cached or newly rendered image.
+    pub fn render_page(&mut self, page_num: usize) -> Option<&image::DynamicImage> {
+        // Render configuration constants
+        // These dimensions provide a good balance between quality and performance
+        // Actual page dimensions may vary, but pdfium scales appropriately
+        const BASE_RENDER_WIDTH: i32 = 800;
+        const BASE_RENDER_HEIGHT: i32 = 1000;
+        
+        // Check if already cached
+        if self.page_cache.contains_key(&page_num) {
+            return self.page_cache.get(&page_num);
+        }
+
+        // Try to render using pdfium
+        if let Some(ref pdfium_doc) = self.pdfium_doc {
+            // Convert page_num (1-based) to 0-based index
+            let page_index = page_num.saturating_sub(1);
+            
+            if let Ok(page) = pdfium_doc.pages().get(page_index as u16) {
+                // Calculate render dimensions based on zoom
+                let width = (BASE_RENDER_WIDTH as f32 * self.metadata.zoom) as i32;
+                let height = (BASE_RENDER_HEIGHT as f32 * self.metadata.zoom) as i32;
+
+                let render_config = PdfRenderConfig::new()
+                    .set_target_width(width)
+                    .set_maximum_height(height);
+
+                match page.render_with_config(&render_config) {
+                    Ok(bitmap) => {
+                        // Convert pdfium bitmap to image::DynamicImage
+                        let width = bitmap.width() as u32;
+                        let height = bitmap.height() as u32;
+                        
+                        // Get RGBA data from bitmap
+                        let rgba_data = bitmap.as_raw_bytes();
+                        
+                        // Create an ImageBuffer from the raw data
+                        if let Some(img_buffer) = image::RgbaImage::from_raw(width, height, rgba_data.to_vec()) {
+                            let dynamic_img = image::DynamicImage::ImageRgba8(img_buffer);
+                            self.page_cache.insert(page_num, dynamic_img);
+                            return self.page_cache.get(&page_num);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to render page {}: {:?}", page_num, e);
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Get the currently rendered page as an image.
+    pub fn get_current_page_image(&mut self) -> Option<&image::DynamicImage> {
+        self.render_page(self.metadata.page)
+    }
+
+    /// Clear the page cache to free memory.
+    pub fn clear_cache(&mut self) {
+        self.page_cache.clear();
     }
 }
 

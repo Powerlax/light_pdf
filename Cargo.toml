@@ -3,9 +3,20 @@ name = "light_pdf"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+# Embed the pdfium library into the binary for self-contained distribution
+# This increases binary size significantly (~30MB) but produces a single-file executable
+embed-pdfium = []
+
 [dependencies]
 eframe = "0.33.3"
-pdfium-render = "0.8.37"
+image = "0.25"
+libloading = "0.8"
+lopdf = "0.39.0"
+# pdfium-render 0.8.37 requires pdfium binaries version 7543
+# See build.sh for automatic pdfium download
+pdfium-render = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
