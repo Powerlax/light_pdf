@@ -3,10 +3,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
-use pdfium_render::prelude::*;
-
-// Type alias to avoid conflict with our PdfDocument struct
-type PdfiumDocument<'a> = pdfium_render::prelude::PdfDocument<'a>;
+use lopdf::Document as LopdfDocument;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PdfMetadata {
@@ -20,22 +17,12 @@ impl Default for PdfMetadata {
     }
 }
 
-// NOTE: Field ordering is CRITICAL for memory safety!
-// `document` MUST be declared before `pdfium` because:
-// - PdfiumDocument holds a reference to the Pdfium instance
-// - We use unsafe transmute to extend the lifetime
-// - Rust drops struct fields in declaration order (top to bottom)
-// - This ensures `document` is dropped before `pdfium`
-// DO NOT REORDER THESE FIELDS without understanding the safety implications!
 pub struct PdfDocument {
     pub file: PathBuf,
     pub metadata_file: Option<PathBuf>,
     pub metadata: PdfMetadata,
     pub total_pages: Option<usize>,
-    // SAFETY: Must be declared before `pdfium` - see comment above
-    document: Option<PdfiumDocument<'static>>,
-    // SAFETY: Must be declared after `document` - see comment above
-    pdfium: Pdfium,
+    document: Option<LopdfDocument>,
     page_cache: HashMap<usize, image::DynamicImage>,
 }
 
@@ -55,30 +42,12 @@ impl PdfDocument {
             .and_then(|mf| Self::load_metadata_from(mf).ok())
             .unwrap_or_default();
 
-        // Try to initialize Pdfium and load the document
-        let pdfium = Pdfium::default();
-        let (document, total_pages) = match pdfium.load_pdf_from_file(&file, None) {
+        // Try to load the document using lopdf
+        let (document, total_pages) = match LopdfDocument::load(&file) {
             Ok(doc) => {
-                let pages = doc.pages().len() as usize;
-                // SAFETY: Extending lifetime from borrowed to 'static using transmute.
-                // This is necessary because PdfDocument needs to own both pdfium and document,
-                // but document borrows from pdfium. This creates a self-referential struct.
-                // 
-                // Why this is safe:
-                // 1. The `document` field is declared BEFORE `pdfium` in the struct
-                // 2. Rust drops struct fields in declaration order
-                // 3. This guarantees `document` is dropped before `pdfium`
-                // 4. The PdfiumDocument will never outlive the Pdfium instance
-                //
-                // IMPORTANT: This safety relies on field ordering. Do NOT reorder
-                // the `document` and `pdfium` fields without updating this code.
-                //
-                // Alternative approaches considered:
-                // - Using `ouroboros` or `self_cell` crates (adds complexity)
-                // - Separating lifetimes (requires Arc/Rc and runtime checks)
-                // - Using unsafe Pin (more complex, similar safety requirements)
-                let static_doc = unsafe { std::mem::transmute(doc) };
-                (Some(static_doc), Some(pages))
+                // Get page count from the document
+                let pages = doc.get_pages().len();
+                (Some(doc), Some(pages))
             }
             Err(e) => {
                 eprintln!("Failed to load PDF {}: {:?}", file.display(), e);
@@ -92,7 +61,6 @@ impl PdfDocument {
             metadata,
             total_pages,
             document,
-            pdfium,
             page_cache: HashMap::new(),
         }
     }
@@ -218,53 +186,23 @@ impl PdfDocument {
             .unwrap_or_else(|| "Untitled".to_string())
     }
 
-    /// Render the current page to an image. Returns the cached image if available,
-    /// otherwise renders the page and caches it.
-    pub fn render_page(&mut self, page_num: usize) -> Option<&image::DynamicImage> {
-        // Check if page is in cache
-        if self.page_cache.contains_key(&page_num) {
-            return self.page_cache.get(&page_num);
-        }
-
-        // Try to render the page
-        if let Some(doc) = &self.document {
-            // Convert usize to u16 for pdfium (page index is 0-based)
-            // Check for overflow: pdfium uses u16 for page indices (max 65535 pages)
-            let page_index = page_num.saturating_sub(1);
-            if page_index > u16::MAX as usize {
-                eprintln!("Page number {} exceeds maximum supported pages (65536)", page_num);
-                return None;
-            }
-            let page_index = page_index as u16;
-            
-            match doc.pages().get(page_index) {
-                Ok(page) => {
-                    // Render with zoom level
-                    let width = (page.width().value * self.metadata.zoom) as i32;
-                    let render_config = PdfRenderConfig::new()
-                        .set_target_width(width.max(100))
-                        .set_maximum_height(4000);
-
-                    match page.render_with_config(&render_config) {
-                        Ok(bitmap) => {
-                            let image_result = bitmap.as_image();
-                            self.page_cache.insert(page_num, image_result);
-                            self.page_cache.get(&page_num)
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to render page {}: {:?}", page_num, e);
-                            None
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Failed to get page {}: {:?}", page_num, e);
-                    None
-                }
-            }
-        } else {
-            None
-        }
+    /// Render the current page to an image. 
+    /// Note: Rendering is not yet implemented with lopdf (pure Rust parser).
+    /// This method currently returns None until a pure Rust rendering solution is integrated.
+    pub fn render_page(&mut self, _: usize) -> Option<&image::DynamicImage> {
+        // lopdf is a pure Rust PDF parser but doesn't provide rendering to images
+        // Rendering PDFs to raster images in pure Rust is complex and requires:
+        // - Font rendering
+        // - Vector graphics rasterization  
+        // - PostScript/PDF operators interpretation
+        // 
+        // Options for future implementation:
+        // 1. Use pdf-rs/pdf_render (experimental, not on crates.io yet)
+        // 2. Implement basic rendering for simple PDFs
+        // 3. Extract text and show that instead
+        // 
+        // For now, we return None to maintain API compatibility
+        None
     }
 
     /// Get the currently rendered page as an image.
