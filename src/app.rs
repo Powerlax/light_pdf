@@ -210,7 +210,7 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                     let available = ui.available_size();
                     
                     // Safety check: ensure we have valid dimensions to avoid division by zero
-                    if size[1] > 0 && available.y > 0.0 {
+                    if size[0] > 0 && size[1] > 0 && available.x > 0.0 && available.y > 0.0 {
                         // Calculate scaling to fit while maintaining aspect ratio
                         let image_aspect = size[0] as f32 / size[1] as f32;
                         let screen_aspect = available.x / available.y;
