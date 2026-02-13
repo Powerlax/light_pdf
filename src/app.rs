@@ -123,7 +123,13 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
     const MIN_ZOOM: f32 = 0.25;
     const MAX_ZOOM: f32 = 4.0;
     
-    egui::CentralPanel::default().show(ctx, |ui| {
+    // Configure panel with no margins/padding in fullscreen mode
+    let mut panel = egui::CentralPanel::default();
+    if app.fullscreen {
+        panel = panel.frame(egui::Frame::none());
+    }
+    
+    panel.show(ctx, |ui| {
         // Hide UI controls in fullscreen mode
         if !app.fullscreen {
             ui.separator();
@@ -198,12 +204,34 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                     egui::TextureOptions::default()
                 );
 
+                // In fullscreen mode, scale image to fit screen while maintaining aspect ratio
+                let image_widget = if app.fullscreen {
+                    // Get available space
+                    let available = ui.available_size();
+                    
+                    // Calculate scaling to fit while maintaining aspect ratio
+                    let image_aspect = size[0] as f32 / size[1] as f32;
+                    let screen_aspect = available.x / available.y;
+                    
+                    let fit_size = if image_aspect > screen_aspect {
+                        // Image is wider than screen - fit to width
+                        egui::Vec2::new(available.x, available.x / image_aspect)
+                    } else {
+                        // Image is taller than screen - fit to height
+                        egui::Vec2::new(available.y * image_aspect, available.y)
+                    };
+                    
+                    egui::Image::new(&texture).fit_to_exact_size(fit_size)
+                } else {
+                    egui::Image::new(&texture)
+                };
+
                 // Display the image in a scrollable area with page-to-page scrolling
                 // Use id_salt with tuple to avoid string allocation every frame
                 let scroll_output = egui::ScrollArea::both()
                     .id_salt(("pdf_scroll", doc.metadata.page))
                     .show(ui, |ui| {
-                        ui.image(&texture);
+                        ui.add(image_widget);
                     });
 
                 // Detect scroll wheel input for page-to-page navigation
