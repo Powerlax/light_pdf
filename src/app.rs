@@ -9,6 +9,8 @@ pub struct MyApp {
     pub show_file_browser: bool,
     pub browser_dir: PathBuf,
     pub auto_open_on_select: bool,
+    /// Page number from which last automatic navigation occurred (for debouncing)
+    last_auto_nav_page: usize,
 }
 
 impl Default for MyApp {
@@ -19,6 +21,7 @@ impl Default for MyApp {
             show_file_browser: false,
             browser_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             auto_open_on_select: true,
+            last_auto_nav_page: 0,
         }
     }
 }
@@ -171,8 +174,9 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                 );
 
                 // Display the image in a scrollable area with page-to-page scrolling
+                // Use id_salt with tuple to avoid string allocation every frame
                 let scroll_output = egui::ScrollArea::both()
-                    .id_salt(format!("pdf_scroll_{}", doc.metadata.page))
+                    .id_salt(("pdf_scroll", doc.metadata.page))
                     .show(ui, |ui| {
                         ui.image(&texture);
                     });
@@ -180,38 +184,47 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                 // Detect scroll wheel input for page-to-page navigation
                 let (scroll_delta, smooth_scroll_delta) = ui.ctx().input(|i| (i.raw_scroll_delta.y, i.smooth_scroll_delta.y));
                 
-                // Check if we should navigate to next/previous page based on scroll position
-                // Only trigger if user is scrolling significantly (threshold to avoid accidental triggers)
-                const SCROLL_THRESHOLD: f32 = 5.0;
+                // Debouncing: Track the page from which last navigation occurred
+                // This prevents multiple navigations from a single scroll gesture
+                let current_page = doc.metadata.page;
+                let can_navigate = app.last_auto_nav_page != current_page;
                 
-                let state = scroll_output.state;
-                let viewport_rect = scroll_output.inner_rect;
-                let content_size = scroll_output.content_size;
-                
-                // Calculate if we're at the bottom or top of the scrollable area
-                let at_bottom = state.offset.y + viewport_rect.height() >= content_size.y - 1.0;
-                let at_top = state.offset.y <= 1.0;
-                
-                // Determine if user is scrolling down or up significantly
-                let scrolling_down = scroll_delta < -SCROLL_THRESHOLD || smooth_scroll_delta < -SCROLL_THRESHOLD;
-                let scrolling_up = scroll_delta > SCROLL_THRESHOLD || smooth_scroll_delta > SCROLL_THRESHOLD;
-                
-                // Scrolling down at the bottom - go to next page
-                if scrolling_down && at_bottom {
-                    if doc.next_page() {
-                        if let Err(e) = doc.save_metadata() {
-                            eprintln!("Failed to save metadata: {}", e);
+                if can_navigate {
+                    // Check if we should navigate to next/previous page based on scroll position
+                    // Only trigger if user is scrolling significantly (threshold to avoid accidental triggers)
+                    const SCROLL_THRESHOLD: f32 = 5.0;
+                    
+                    let state = scroll_output.state;
+                    let viewport_rect = scroll_output.inner_rect;
+                    let content_size = scroll_output.content_size;
+                    
+                    // Calculate if we're at the bottom or top of the scrollable area
+                    let at_bottom = state.offset.y + viewport_rect.height() >= content_size.y - 1.0;
+                    let at_top = state.offset.y <= 1.0;
+                    
+                    // Determine if user is scrolling down or up significantly
+                    let scrolling_down = scroll_delta < -SCROLL_THRESHOLD || smooth_scroll_delta < -SCROLL_THRESHOLD;
+                    let scrolling_up = scroll_delta > SCROLL_THRESHOLD || smooth_scroll_delta > SCROLL_THRESHOLD;
+                    
+                    // Scrolling down at the bottom - go to next page
+                    if scrolling_down && at_bottom {
+                        if doc.next_page() {
+                            if let Err(e) = doc.save_metadata() {
+                                eprintln!("Failed to save metadata: {}", e);
+                            }
+                            doc.clear_cache();
+                            app.last_auto_nav_page = current_page;
                         }
-                        doc.clear_cache();
                     }
-                }
-                // Scrolling up at the top - go to previous page
-                else if scrolling_up && at_top {
-                    if doc.prev_page() {
-                        if let Err(e) = doc.save_metadata() {
-                            eprintln!("Failed to save metadata: {}", e);
+                    // Scrolling up at the top - go to previous page
+                    else if scrolling_up && at_top {
+                        if doc.prev_page() {
+                            if let Err(e) = doc.save_metadata() {
+                                eprintln!("Failed to save metadata: {}", e);
+                            }
+                            doc.clear_cache();
+                            app.last_auto_nav_page = current_page;
                         }
-                        doc.clear_cache();
                     }
                 }
             } else {
