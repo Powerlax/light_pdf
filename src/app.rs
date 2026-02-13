@@ -183,7 +183,10 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                     });
 
                 // Detect scroll wheel input for page-to-page navigation
-                let (raw_scroll_delta_y, smooth_scroll_delta_y) = ui.ctx().input(|i| (i.raw_scroll_delta.y, i.smooth_scroll_delta.y));
+                // Check both raw and smooth scroll deltas to handle different input devices:
+                // - raw_scroll_delta: direct scroll wheel ticks
+                // - smooth_scroll_delta: trackpad/smooth scrolling
+                let (raw_scroll_delta_y, smooth_scroll_delta_y) = ui.input(|i| (i.raw_scroll_delta.y, i.smooth_scroll_delta.y));
                 
                 // Debouncing: Track the page from which last navigation occurred
                 // Reset debounce if we're on a different page (manual navigation occurred)
