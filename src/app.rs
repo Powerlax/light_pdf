@@ -42,7 +42,8 @@ pub fn render_ui(app: &mut MyApp, ctx: &egui::Context, frame: &mut eframe::Frame
     let f11_pressed = ctx.input(|i| i.key_pressed(egui::Key::F11));
     if f11_pressed {
         app.fullscreen = !app.fullscreen;
-        // Apply fullscreen window state (true fullscreen + hide decorations)
+        // Apply fullscreen window state: enable OS fullscreen and hide window decorations
+        // When fullscreen=true, we want: Fullscreen(true) and Decorations(false)
         ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(app.fullscreen));
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(!app.fullscreen));
     }
