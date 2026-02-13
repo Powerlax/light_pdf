@@ -183,12 +183,12 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                     });
 
                 // Detect scroll wheel input for page-to-page navigation
-                let (scroll_delta, smooth_scroll_delta) = ui.ctx().input(|i| (i.raw_scroll_delta.y, i.smooth_scroll_delta.y));
+                let (raw_scroll_delta_y, smooth_scroll_delta_y) = ui.ctx().input(|i| (i.raw_scroll_delta.y, i.smooth_scroll_delta.y));
                 
                 // Debouncing: Track the page from which last navigation occurred
                 // Reset debounce if we're on a different page (manual navigation occurred)
                 let current_page = doc.metadata.page;
-                if app.last_auto_nav_page.is_some() && app.last_auto_nav_page != Some(current_page) {
+                if matches!(app.last_auto_nav_page, Some(p) if p != current_page) {
                     app.last_auto_nav_page = None;
                 }
                 
@@ -199,18 +199,19 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                     // Check if we should navigate to next/previous page based on scroll position
                     // Only trigger if user is scrolling significantly (threshold to avoid accidental triggers)
                     const SCROLL_THRESHOLD: f32 = 5.0;
+                    const SCROLL_EDGE_TOLERANCE: f32 = 1.0;
                     
                     let state = scroll_output.state;
                     let viewport_rect = scroll_output.inner_rect;
                     let content_size = scroll_output.content_size;
                     
                     // Calculate if we're at the bottom or top of the scrollable area
-                    let at_bottom = state.offset.y + viewport_rect.height() >= content_size.y - 1.0;
-                    let at_top = state.offset.y <= 1.0;
+                    let at_bottom = state.offset.y + viewport_rect.height() >= content_size.y - SCROLL_EDGE_TOLERANCE;
+                    let at_top = state.offset.y <= SCROLL_EDGE_TOLERANCE;
                     
                     // Determine if user is scrolling down or up significantly
-                    let scrolling_down = scroll_delta < -SCROLL_THRESHOLD || smooth_scroll_delta < -SCROLL_THRESHOLD;
-                    let scrolling_up = scroll_delta > SCROLL_THRESHOLD || smooth_scroll_delta > SCROLL_THRESHOLD;
+                    let scrolling_down = raw_scroll_delta_y < -SCROLL_THRESHOLD || smooth_scroll_delta_y < -SCROLL_THRESHOLD;
+                    let scrolling_up = raw_scroll_delta_y > SCROLL_THRESHOLD || smooth_scroll_delta_y > SCROLL_THRESHOLD;
                     
                     // Check if navigation should occur
                     let should_nav_next = scrolling_down && at_bottom;
