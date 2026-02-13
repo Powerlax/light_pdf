@@ -170,10 +170,42 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                     egui::TextureOptions::default()
                 );
 
-                // Display the image in a scrollable area
-                egui::ScrollArea::both().show(ui, |ui| {
-                    ui.image(&texture);
-                });
+                // Display the image in a scrollable area with page-to-page scrolling
+                let scroll_output = egui::ScrollArea::both()
+                    .id_salt(format!("pdf_scroll_{}", doc.metadata.page))
+                    .show(ui, |ui| {
+                        ui.image(&texture);
+                    });
+
+                // Detect scroll wheel input for page-to-page navigation
+                let (scroll_delta, smooth_scroll_delta) = ui.ctx().input(|i| (i.raw_scroll_delta.y, i.smooth_scroll_delta));
+                
+                // Check if we should navigate to next/previous page based on scroll position
+                // Only trigger if user is scrolling significantly (threshold to avoid accidental triggers)
+                const SCROLL_THRESHOLD: f32 = 5.0;
+                
+                let state = scroll_output.state;
+                let viewport_rect = scroll_output.inner_rect;
+                let content_size = scroll_output.content_size;
+                
+                // Calculate if we're at the bottom or top of the scrollable area
+                let at_bottom = state.offset.y + viewport_rect.height() >= content_size.y - 1.0;
+                let at_top = state.offset.y <= 1.0;
+                
+                // Scrolling down at the bottom - go to next page
+                if (scroll_delta < -SCROLL_THRESHOLD || smooth_scroll_delta.y < -SCROLL_THRESHOLD) && at_bottom {
+                    if doc.next_page() {
+                        let _ = doc.save_metadata();
+                        doc.clear_cache();
+                    }
+                }
+                // Scrolling up at the top - go to previous page
+                else if (scroll_delta > SCROLL_THRESHOLD || smooth_scroll_delta.y > SCROLL_THRESHOLD) && at_top {
+                    if doc.prev_page() {
+                        let _ = doc.save_metadata();
+                        doc.clear_cache();
+                    }
+                }
             } else {
                 ui.vertical_centered(|ui| {
                     ui.add_space(50.0);
