@@ -178,7 +178,7 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                     });
 
                 // Detect scroll wheel input for page-to-page navigation
-                let (scroll_delta, smooth_scroll_delta) = ui.ctx().input(|i| (i.raw_scroll_delta.y, i.smooth_scroll_delta));
+                let (scroll_delta, smooth_scroll_delta) = ui.ctx().input(|i| (i.raw_scroll_delta.y, i.smooth_scroll_delta.y));
                 
                 // Check if we should navigate to next/previous page based on scroll position
                 // Only trigger if user is scrolling significantly (threshold to avoid accidental triggers)
@@ -192,17 +192,25 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                 let at_bottom = state.offset.y + viewport_rect.height() >= content_size.y - 1.0;
                 let at_top = state.offset.y <= 1.0;
                 
+                // Determine if user is scrolling down or up significantly
+                let scrolling_down = scroll_delta < -SCROLL_THRESHOLD || smooth_scroll_delta < -SCROLL_THRESHOLD;
+                let scrolling_up = scroll_delta > SCROLL_THRESHOLD || smooth_scroll_delta > SCROLL_THRESHOLD;
+                
                 // Scrolling down at the bottom - go to next page
-                if (scroll_delta < -SCROLL_THRESHOLD || smooth_scroll_delta.y < -SCROLL_THRESHOLD) && at_bottom {
+                if scrolling_down && at_bottom {
                     if doc.next_page() {
-                        let _ = doc.save_metadata();
+                        if let Err(e) = doc.save_metadata() {
+                            eprintln!("Failed to save metadata: {}", e);
+                        }
                         doc.clear_cache();
                     }
                 }
                 // Scrolling up at the top - go to previous page
-                else if (scroll_delta > SCROLL_THRESHOLD || smooth_scroll_delta.y > SCROLL_THRESHOLD) && at_top {
+                else if scrolling_up && at_top {
                     if doc.prev_page() {
-                        let _ = doc.save_metadata();
+                        if let Err(e) = doc.save_metadata() {
+                            eprintln!("Failed to save metadata: {}", e);
+                        }
                         doc.clear_cache();
                     }
                 }
