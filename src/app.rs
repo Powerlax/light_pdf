@@ -42,11 +42,10 @@ pub fn render_ui(app: &mut MyApp, ctx: &egui::Context, frame: &mut eframe::Frame
     let f11_pressed = ctx.input(|i| i.key_pressed(egui::Key::F11));
     if f11_pressed {
         app.fullscreen = !app.fullscreen;
+        // Apply fullscreen window state (true fullscreen + hide decorations)
+        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(app.fullscreen));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(!app.fullscreen));
     }
-
-    // Apply fullscreen window state (true fullscreen + hide decorations)
-    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(app.fullscreen));
-    ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(!app.fullscreen));
 
     // Left/Right keys for page navigation (also persist on change)
     let (left_pressed, right_pressed) = ctx.input(|i| (i.key_pressed(egui::Key::ArrowLeft), i.key_pressed(egui::Key::ArrowRight)));
