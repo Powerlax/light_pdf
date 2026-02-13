@@ -13,7 +13,7 @@ pub struct MyApp {
     /// None indicates no automatic navigation has occurred yet
     last_auto_nav_page: Option<usize>,
     /// Whether fullscreen mode is active (hides all UI chrome)
-    pub fullscreen: bool,
+    fullscreen: bool,
 }
 
 impl Default for MyApp {
