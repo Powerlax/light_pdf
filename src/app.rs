@@ -12,6 +12,8 @@ pub struct MyApp {
     /// Page number from which last automatic navigation occurred (for debouncing)
     /// None indicates no automatic navigation has occurred yet
     last_auto_nav_page: Option<usize>,
+    /// Whether fullscreen mode is active (hides all UI chrome)
+    pub fullscreen: bool,
 }
 
 impl Default for MyApp {
@@ -23,6 +25,7 @@ impl Default for MyApp {
             browser_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             auto_open_on_select: true,
             last_auto_nav_page: None,
+            fullscreen: false,
         }
     }
 }
@@ -33,6 +36,12 @@ pub fn render_ui(app: &mut MyApp, ctx: &egui::Context, frame: &mut eframe::Frame
     let open_shortcut = ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O));
     if open_shortcut {
         perform_open_action(app, ctx);
+    }
+
+    // F11 to toggle fullscreen mode
+    let f11_pressed = ctx.input(|i| i.key_pressed(egui::Key::F11));
+    if f11_pressed {
+        app.fullscreen = !app.fullscreen;
     }
 
     // Left/Right keys for page navigation (also persist on change)
@@ -77,6 +86,11 @@ fn perform_open_action(app: &mut MyApp, ctx: &egui::Context) {
 }
 
 fn render_top_menu(app: &mut MyApp, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    // Don't show top menu in fullscreen mode
+    if app.fullscreen {
+        return;
+    }
+    
     egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
@@ -106,58 +120,64 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
     const MAX_ZOOM: f32 = 4.0;
     
     egui::CentralPanel::default().show(ctx, |ui| {
-        ui.separator();
+        // Hide UI controls in fullscreen mode
+        if !app.fullscreen {
+            ui.separator();
 
-        ui.horizontal(|ui| {
-            ui.label("Selected:");
-            ui.monospace(app.open_path.clone());
-        });
-
-        ui.separator();
-
-        if let Some(doc) = &mut app.current {
             ui.horizontal(|ui| {
-                ui.label(format!("Opened: {}", doc.display_name()));
-                if ui.button("Prev").clicked() {
-                    if doc.prev_page() {
-                        let _ = doc.save_metadata();
-                        doc.clear_cache(); // Clear cache when page changes
-                    }
-                }
-                if ui.button("Next").clicked() {
-                    if doc.next_page() {
-                        let _ = doc.save_metadata();
-                        doc.clear_cache(); // Clear cache when page changes
-                    }
-                }
-                if let Some(total) = doc.total_pages {
-                    ui.label(format!("Page: {} / {}", doc.metadata.page, total));
-                } else {
-                    ui.label(format!("Page: {}", doc.metadata.page));
-                }
-                
-                ui.separator();
-                
-                // Zoom controls
-                if ui.button("Zoom -").clicked() {
-                    doc.metadata.zoom = (doc.metadata.zoom - ZOOM_STEP).max(MIN_ZOOM);
-                    let _ = doc.save_metadata();
-                    doc.clear_cache(); // Clear cache when zoom changes
-                }
-                ui.label(format!("{:.0}%", doc.metadata.zoom * 100.0));
-                if ui.button("Zoom +").clicked() {
-                    doc.metadata.zoom = (doc.metadata.zoom + ZOOM_STEP).min(MAX_ZOOM);
-                    let _ = doc.save_metadata();
-                    doc.clear_cache(); // Clear cache when zoom changes
-                }
-                if ui.button("100%").clicked() {
-                    doc.metadata.zoom = 1.0;
-                    let _ = doc.save_metadata();
-                    doc.clear_cache(); // Clear cache when zoom changes
-                }
+                ui.label("Selected:");
+                ui.monospace(app.open_path.clone());
             });
 
             ui.separator();
+        }
+
+        if let Some(doc) = &mut app.current {
+            // Hide controls in fullscreen mode
+            if !app.fullscreen {
+                ui.horizontal(|ui| {
+                    ui.label(format!("Opened: {}", doc.display_name()));
+                    if ui.button("Prev").clicked() {
+                        if doc.prev_page() {
+                            let _ = doc.save_metadata();
+                            doc.clear_cache(); // Clear cache when page changes
+                        }
+                    }
+                    if ui.button("Next").clicked() {
+                        if doc.next_page() {
+                            let _ = doc.save_metadata();
+                            doc.clear_cache(); // Clear cache when page changes
+                        }
+                    }
+                    if let Some(total) = doc.total_pages {
+                        ui.label(format!("Page: {} / {}", doc.metadata.page, total));
+                    } else {
+                        ui.label(format!("Page: {}", doc.metadata.page));
+                    }
+                    
+                    ui.separator();
+                    
+                    // Zoom controls
+                    if ui.button("Zoom -").clicked() {
+                        doc.metadata.zoom = (doc.metadata.zoom - ZOOM_STEP).max(MIN_ZOOM);
+                        let _ = doc.save_metadata();
+                        doc.clear_cache(); // Clear cache when zoom changes
+                    }
+                    ui.label(format!("{:.0}%", doc.metadata.zoom * 100.0));
+                    if ui.button("Zoom +").clicked() {
+                        doc.metadata.zoom = (doc.metadata.zoom + ZOOM_STEP).min(MAX_ZOOM);
+                        let _ = doc.save_metadata();
+                        doc.clear_cache(); // Clear cache when zoom changes
+                    }
+                    if ui.button("100%").clicked() {
+                        doc.metadata.zoom = 1.0;
+                        let _ = doc.save_metadata();
+                        doc.clear_cache(); // Clear cache when zoom changes
+                    }
+                });
+
+                ui.separator();
+            }
 
             // Render the PDF page
             if let Some(img) = doc.get_current_page_image() {
