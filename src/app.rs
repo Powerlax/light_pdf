@@ -9,6 +9,9 @@ pub struct MyApp {
     pub show_file_browser: bool,
     pub browser_dir: PathBuf,
     pub auto_open_on_select: bool,
+    /// Page number from which last automatic navigation occurred (for debouncing)
+    /// None indicates no automatic navigation has occurred yet
+    last_auto_nav_page: Option<usize>,
 }
 
 impl Default for MyApp {
@@ -19,6 +22,7 @@ impl Default for MyApp {
             show_file_browser: false,
             browser_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             auto_open_on_select: true,
+            last_auto_nav_page: None,
         }
     }
 }
@@ -170,10 +174,70 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                     egui::TextureOptions::default()
                 );
 
-                // Display the image in a scrollable area
-                egui::ScrollArea::both().show(ui, |ui| {
-                    ui.image(&texture);
-                });
+                // Display the image in a scrollable area with page-to-page scrolling
+                // Use id_salt with tuple to avoid string allocation every frame
+                let scroll_output = egui::ScrollArea::both()
+                    .id_salt(("pdf_scroll", doc.metadata.page))
+                    .show(ui, |ui| {
+                        ui.image(&texture);
+                    });
+
+                // Detect scroll wheel input for page-to-page navigation
+                // Check both raw and smooth scroll deltas to handle different input devices:
+                // - raw_scroll_delta: direct scroll wheel ticks
+                // - smooth_scroll_delta: trackpad/smooth scrolling
+                let (raw_scroll_delta_y, smooth_scroll_delta_y) = ui.input(|i| (i.raw_scroll_delta.y, i.smooth_scroll_delta.y));
+                
+                // Debouncing: Track the page from which last navigation occurred
+                // Reset debounce if we're on a different page (manual navigation occurred)
+                let current_page = doc.metadata.page;
+                if matches!(app.last_auto_nav_page, Some(p) if p != current_page) {
+                    app.last_auto_nav_page = None;
+                }
+                
+                // Only allow automatic navigation if debounce is clear
+                let can_navigate = app.last_auto_nav_page.is_none();
+                
+                if can_navigate {
+                    // Check if we should navigate to next/previous page based on scroll position
+                    // Only trigger if user is scrolling significantly (threshold to avoid accidental triggers)
+                    const SCROLL_THRESHOLD: f32 = 5.0;
+                    const SCROLL_EDGE_TOLERANCE: f32 = 1.0;
+                    
+                    let state = scroll_output.state;
+                    let viewport_rect = scroll_output.inner_rect;
+                    let content_size = scroll_output.content_size;
+                    
+                    // Calculate if we're at the bottom or top of the scrollable area
+                    let at_bottom = state.offset.y + viewport_rect.height() >= content_size.y - SCROLL_EDGE_TOLERANCE;
+                    let at_top = state.offset.y <= SCROLL_EDGE_TOLERANCE;
+                    
+                    // Determine if user is scrolling down or up significantly
+                    let scrolling_down = raw_scroll_delta_y < -SCROLL_THRESHOLD || smooth_scroll_delta_y < -SCROLL_THRESHOLD;
+                    let scrolling_up = raw_scroll_delta_y > SCROLL_THRESHOLD || smooth_scroll_delta_y > SCROLL_THRESHOLD;
+                    
+                    // Check if navigation should occur
+                    let should_nav_next = scrolling_down && at_bottom;
+                    let should_nav_prev = scrolling_up && at_top;
+                    
+                    // Perform navigation if needed
+                    let navigated = if should_nav_next {
+                        doc.next_page()
+                    } else if should_nav_prev {
+                        doc.prev_page()
+                    } else {
+                        false
+                    };
+                    
+                    // Handle post-navigation tasks
+                    if navigated {
+                        if let Err(e) = doc.save_metadata() {
+                            eprintln!("Failed to save metadata: {}", e);
+                        }
+                        doc.clear_cache();
+                        app.last_auto_nav_page = Some(current_page);
+                    }
+                }
             } else {
                 ui.vertical_centered(|ui| {
                     ui.add_space(50.0);
