@@ -209,19 +209,25 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                     // Get available space
                     let available = ui.available_size();
                     
-                    // Calculate scaling to fit while maintaining aspect ratio
-                    let image_aspect = size[0] as f32 / size[1] as f32;
-                    let screen_aspect = available.x / available.y;
-                    
-                    let fit_size = if image_aspect > screen_aspect {
-                        // Image is wider than screen - fit to width
-                        egui::Vec2::new(available.x, available.x / image_aspect)
+                    // Safety check: ensure we have valid dimensions to avoid division by zero
+                    if size[1] > 0 && available.y > 0.0 {
+                        // Calculate scaling to fit while maintaining aspect ratio
+                        let image_aspect = size[0] as f32 / size[1] as f32;
+                        let screen_aspect = available.x / available.y;
+                        
+                        let fit_size = if image_aspect > screen_aspect {
+                            // Image is wider than screen - fit to width
+                            egui::Vec2::new(available.x, available.x / image_aspect)
+                        } else {
+                            // Image is taller than screen - fit to height
+                            egui::Vec2::new(available.y * image_aspect, available.y)
+                        };
+                        
+                        egui::Image::new(&texture).fit_to_exact_size(fit_size)
                     } else {
-                        // Image is taller than screen - fit to height
-                        egui::Vec2::new(available.y * image_aspect, available.y)
-                    };
-                    
-                    egui::Image::new(&texture).fit_to_exact_size(fit_size)
+                        // Fallback to default if dimensions are invalid
+                        egui::Image::new(&texture)
+                    }
                 } else {
                     egui::Image::new(&texture)
                 };
