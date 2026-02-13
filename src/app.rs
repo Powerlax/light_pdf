@@ -10,7 +10,8 @@ pub struct MyApp {
     pub browser_dir: PathBuf,
     pub auto_open_on_select: bool,
     /// Page number from which last automatic navigation occurred (for debouncing)
-    last_auto_nav_page: usize,
+    /// None indicates no automatic navigation has occurred yet
+    last_auto_nav_page: Option<usize>,
 }
 
 impl Default for MyApp {
@@ -21,7 +22,7 @@ impl Default for MyApp {
             show_file_browser: false,
             browser_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             auto_open_on_select: true,
-            last_auto_nav_page: 0,
+            last_auto_nav_page: None,
         }
     }
 }
@@ -185,9 +186,14 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                 let (scroll_delta, smooth_scroll_delta) = ui.ctx().input(|i| (i.raw_scroll_delta.y, i.smooth_scroll_delta.y));
                 
                 // Debouncing: Track the page from which last navigation occurred
-                // This prevents multiple navigations from a single scroll gesture
+                // Reset debounce if we're on a different page (manual navigation occurred)
                 let current_page = doc.metadata.page;
-                let can_navigate = app.last_auto_nav_page != current_page;
+                if app.last_auto_nav_page.is_some() && app.last_auto_nav_page != Some(current_page) {
+                    app.last_auto_nav_page = None;
+                }
+                
+                // Only allow automatic navigation if debounce is clear
+                let can_navigate = app.last_auto_nav_page.is_none();
                 
                 if can_navigate {
                     // Check if we should navigate to next/previous page based on scroll position
@@ -206,25 +212,26 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                     let scrolling_down = scroll_delta < -SCROLL_THRESHOLD || smooth_scroll_delta < -SCROLL_THRESHOLD;
                     let scrolling_up = scroll_delta > SCROLL_THRESHOLD || smooth_scroll_delta > SCROLL_THRESHOLD;
                     
-                    // Scrolling down at the bottom - go to next page
-                    if scrolling_down && at_bottom {
-                        if doc.next_page() {
-                            if let Err(e) = doc.save_metadata() {
-                                eprintln!("Failed to save metadata: {}", e);
-                            }
-                            doc.clear_cache();
-                            app.last_auto_nav_page = current_page;
+                    // Check if navigation should occur
+                    let should_nav_next = scrolling_down && at_bottom;
+                    let should_nav_prev = scrolling_up && at_top;
+                    
+                    // Perform navigation if needed
+                    let navigated = if should_nav_next {
+                        doc.next_page()
+                    } else if should_nav_prev {
+                        doc.prev_page()
+                    } else {
+                        false
+                    };
+                    
+                    // Handle post-navigation tasks
+                    if navigated {
+                        if let Err(e) = doc.save_metadata() {
+                            eprintln!("Failed to save metadata: {}", e);
                         }
-                    }
-                    // Scrolling up at the top - go to previous page
-                    else if scrolling_up && at_top {
-                        if doc.prev_page() {
-                            if let Err(e) = doc.save_metadata() {
-                                eprintln!("Failed to save metadata: {}", e);
-                            }
-                            doc.clear_cache();
-                            app.last_auto_nav_page = current_page;
-                        }
+                        doc.clear_cache();
+                        app.last_auto_nav_page = Some(current_page);
                     }
                 }
             } else {
