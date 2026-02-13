@@ -48,6 +48,37 @@ pub fn render_ui(app: &mut MyApp, ctx: &egui::Context, frame: &mut eframe::Frame
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(!app.fullscreen));
     }
 
+    // Zoom shortcuts: Ctrl+= to zoom in, Ctrl+- to zoom out, Ctrl+0 for 100%
+    const ZOOM_STEP: f32 = 0.25;
+    const MIN_ZOOM: f32 = 0.25;
+    const MAX_ZOOM: f32 = 4.0;
+    
+    let (zoom_in, zoom_out, zoom_reset) = ctx.input(|i| {
+        // Check for Ctrl+= or Ctrl++ (often same key)
+        let zoom_in = i.modifiers.command && i.key_pressed(egui::Key::Equals);
+        let zoom_out = i.modifiers.command && i.key_pressed(egui::Key::Minus);
+        let zoom_reset = i.modifiers.command && i.key_pressed(egui::Key::Num0);
+        (zoom_in, zoom_out, zoom_reset)
+    });
+    
+    if let Some(doc) = &mut app.current {
+        if zoom_in {
+            doc.metadata.zoom = (doc.metadata.zoom + ZOOM_STEP).min(MAX_ZOOM);
+            let _ = doc.save_metadata();
+            doc.clear_cache();
+        }
+        if zoom_out {
+            doc.metadata.zoom = (doc.metadata.zoom - ZOOM_STEP).max(MIN_ZOOM);
+            let _ = doc.save_metadata();
+            doc.clear_cache();
+        }
+        if zoom_reset {
+            doc.metadata.zoom = 1.0;
+            let _ = doc.save_metadata();
+            doc.clear_cache();
+        }
+    }
+
     // Left/Right keys for page navigation (also persist on change)
     let (left_pressed, right_pressed) = ctx.input(|i| (i.key_pressed(egui::Key::ArrowLeft), i.key_pressed(egui::Key::ArrowRight)));
     if let Some(doc) = &mut app.current {
@@ -126,7 +157,7 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
     // Configure panel with no margins/padding in fullscreen mode
     let mut panel = egui::CentralPanel::default();
     if app.fullscreen {
-        panel = panel.frame(egui::Frame::none());
+        panel = panel.frame(egui::Frame::NONE);
     }
     
     panel.show(ctx, |ui| {
