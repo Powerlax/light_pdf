@@ -12,8 +12,6 @@ embed-pdfium = []
 [dependencies]
 eframe = "0.33.3"
 image = "0.25"
-libloading = "0.8"
-lopdf = "0.39.0"
 # pdfium-render 0.8.37 requires pdfium binaries version 7543
 # See build.sh for automatic pdfium download
 pdfium-render = "0.8"

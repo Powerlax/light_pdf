@@ -9,6 +9,7 @@ pub struct MyApp {
     pub show_file_browser: bool,
     pub browser_dir: PathBuf,
     pub auto_open_on_select: bool,
+
     /// Page number from which last automatic navigation occurred (for debouncing)
     /// None indicates no automatic navigation has occurred yet
     last_auto_nav_page: Option<usize>,
@@ -32,23 +33,16 @@ impl Default for MyApp {
 
 /// Render the entire UI by delegating to smaller functions.
 pub fn render_ui(app: &mut MyApp, ctx: &egui::Context, frame: &mut eframe::Frame) {
-    // Keyboard shortcuts: check inside the closure-based input reader API
     let open_shortcut = ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O));
     if open_shortcut {
         perform_open_action(app, ctx);
     }
-
-    // F11 to toggle fullscreen mode
     let f11_pressed = ctx.input(|i| i.key_pressed(egui::Key::F11));
     if f11_pressed {
         app.fullscreen = !app.fullscreen;
-        // Apply fullscreen window state: enable OS fullscreen and hide window decorations
-        // When fullscreen=true, we want: Fullscreen(true) and Decorations(false)
         ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(app.fullscreen));
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(!app.fullscreen));
     }
-
-    // Left/Right keys for page navigation (also persist on change)
     let (left_pressed, right_pressed) = ctx.input(|i| (i.key_pressed(egui::Key::ArrowLeft), i.key_pressed(egui::Key::ArrowRight)));
     if let Some(doc) = &mut app.current {
         if left_pressed {
@@ -69,7 +63,6 @@ pub fn render_ui(app: &mut MyApp, ctx: &egui::Context, frame: &mut eframe::Frame
 }
 
 fn perform_open_action(app: &mut MyApp, ctx: &egui::Context) {
-    // On Windows, open native dialog and potentially auto-open
     #[cfg(target_os = "windows")]
     {
         if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
@@ -80,8 +73,6 @@ fn perform_open_action(app: &mut MyApp, ctx: &egui::Context) {
             }
         }
     }
-
-    // On non-Windows, show the in-app browser
     #[cfg(not(target_os = "windows"))]
     {
         app.show_file_browser = true;
@@ -90,11 +81,9 @@ fn perform_open_action(app: &mut MyApp, ctx: &egui::Context) {
 }
 
 fn render_top_menu(app: &mut MyApp, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-    // Don't show top menu in fullscreen mode
     if app.fullscreen {
         return;
     }
-    
     egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
@@ -102,12 +91,10 @@ fn render_top_menu(app: &mut MyApp, ctx: &egui::Context, _frame: &mut eframe::Fr
                     perform_open_action(app, ctx);
                     ui.close();
                 }
-
                 if ui.button("Quit").clicked() {
                     std::process::exit(0);
                 }
             });
-
             ui.menu_button("Edit", |ui| {
                 if ui.button("Preferences...").clicked() {
                     ui.close();
@@ -118,7 +105,6 @@ fn render_top_menu(app: &mut MyApp, ctx: &egui::Context, _frame: &mut eframe::Fr
 }
 
 fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
-    // Zoom configuration constants
     const ZOOM_STEP: f32 = 0.25;
     const MIN_ZOOM: f32 = 0.25;
     const MAX_ZOOM: f32 = 4.0;
@@ -126,7 +112,7 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
     // Configure panel with no margins/padding in fullscreen mode
     let mut panel = egui::CentralPanel::default();
     if app.fullscreen {
-        panel = panel.frame(egui::Frame::none());
+        panel = panel.frame(egui::Frame::NONE);
     }
     
     panel.show(ctx, |ui| {
