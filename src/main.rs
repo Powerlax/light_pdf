@@ -4,15 +4,7 @@ mod pdfium_loader;
 
 use eframe::egui;
 use std::io::Write;
-
-/// Print to stderr, ignoring broken pipe errors.
-/// This is needed for WSL/Linux environments where stderr may be disconnected.
-macro_rules! safe_eprintln {
-    ($($arg:tt)*) => {
-        use std::io::Write;
-        let _ = writeln!(std::io::stderr(), $($arg)*);
-    };
-}
+use light_pdf::safe_eprintln;
 
 fn main() {
     let options = eframe::NativeOptions::default();
