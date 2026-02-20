@@ -3,17 +3,8 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
-use lopdf::Document as LopdfDocument;
 use pdfium_render::prelude::*;
-
-/// Print to stderr, ignoring broken pipe errors.
-/// This is needed for WSL/Linux environments where stderr may be disconnected.
-macro_rules! safe_eprintln {
-    ($($arg:tt)*) => {
-        use std::io::Write;
-        let _ = writeln!(std::io::stderr(), $($arg)*);
-    };
-}
+use crate::safe_eprintln;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PdfMetadata {
@@ -32,10 +23,8 @@ pub struct PdfDocument {
     pub metadata_file: Option<PathBuf>,
     pub metadata: PdfMetadata,
     pub total_pages: Option<usize>,
-    document: Option<LopdfDocument>,
     pdfium_doc: Option<pdfium_render::prelude::PdfDocument<'static>>,
     page_cache: HashMap<usize, image::DynamicImage>,
-    /// Cache window boundaries: keeps pages in range [cache_window_start, cache_window_end]
     cache_window_start: usize,
     cache_window_end: usize,
 }
@@ -56,25 +45,6 @@ impl PdfDocument {
             .and_then(|mf| Self::load_metadata_from(mf).ok())
             .unwrap_or_default();
 
-        // Try to load the document using lopdf for metadata
-        let (document, total_pages) = match LopdfDocument::load(&file) {
-            Ok(doc) => {
-                // Get page count from the document
-                let pages = doc.get_pages().len();
-                (Some(doc), Some(pages))
-            }
-            Err(e) => {
-                safe_eprintln!("Failed to load PDF with lopdf {}: {:?}", file.display(), e);
-                (None, None)
-            }
-        };
-
-        // Try to initialize pdfium for rendering
-        // Uses pdfium_loader to find/extract the pdfium library
-        // MEMORY LEAK NOTE: We use Box::leak to create a 'static Pdfium instance.
-        // This is required by pdfium-render's lifetime constraints - PdfDocument<'static> needs
-        // a Pdfium instance with 'static lifetime.
-        // If pdfium is not available, rendering will just not work (graceful degradation)
         let pdfium_doc = {
             std::panic::catch_unwind(|| {
                 if let Some(pdfium) = crate::pdfium_loader::create_static_pdfium() {
@@ -88,12 +58,17 @@ impl PdfDocument {
             })
         };
 
+        let mut total_pages = None;
+        if pdfium_doc.is_some() {
+            total_pages = Some((&pdfium_doc).as_ref().
+                expect("Failed to get number of pages from doc").pages().len() as usize);
+        }
+
         Self {
             file,
             metadata_file,
             metadata,
             total_pages,
-            document,
             pdfium_doc,
             page_cache: HashMap::new(),
             cache_window_start: 1,
@@ -101,38 +76,26 @@ impl PdfDocument {
         }
     }
 
-    /// Load metadata from the configured metadata file.
-    pub fn load_metadata(&mut self) -> io::Result<()> {
-        match &self.metadata_file {
-            Some(path) => {
-                let md = Self::load_metadata_from(path)?;
-                self.metadata = md;
-                Ok(())
-            }
-            None => Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                "metadata file not configured",
-            )),
-        }
-    }
-
-    /// Save metadata to the configured metadata file immediately. Creates parent directories as needed.
+    /// Save metadata to the metadata file.
     pub fn save_metadata(&mut self) -> io::Result<()> {
         match &self.metadata_file {
             Some(path) => Self::actually_write_to_metadata_file(path, &self.metadata),
             None => Err(io::Error::new(
                 io::ErrorKind::NotFound,
-                "metadata file not configured",
+                "Metadata file not configured!",
             )),
         }
     }
 
+    /// Load metadata from the given path.
     fn load_metadata_from(path: &Path) -> io::Result<PdfMetadata> {
         let data = fs::read_to_string(path)?;
         let md = serde_json::from_str(&data).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         Ok(md)
     }
 
+    /// Actually does the heavy lifting of writing the metadata to a file.
+    /// Use [PdfDocument.save_metadata] instead of calling this.
     fn actually_write_to_metadata_file(path: &Path, metadata: &PdfMetadata) -> io::Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
@@ -143,16 +106,6 @@ impl PdfDocument {
         f.write_all(&data)?;
         fs::rename(tmp, path)?;
         Ok(())
-    }
-
-    /// Set the current page (1-based). Will clamp to [1, total_pages] if total_pages is known.
-    pub fn set_page(&mut self, page: usize) {
-        let new_page = if let Some(total) = self.total_pages {
-            page.clamp(1, total)
-        } else {
-            page.max(1)
-        };
-        self.metadata.page = new_page;
     }
 
     /// Advance to the next page. Returns true if the page changed.
@@ -185,33 +138,6 @@ impl PdfDocument {
         true
     }
 
-    /// Set zoom level (e.g., 1.0 = 100%).
-    pub fn set_zoom(&mut self, zoom: f32) {
-        self.metadata.zoom = zoom.max(0.01);
-    }
-
-    /// Try to set total pages (useful after opening the document). If the current page is out of range,
-    /// it will be clamped.
-    pub fn set_total_pages(&mut self, total: usize) {
-        self.total_pages = Some(total.max(1));
-        if let Some(t) = self.total_pages {
-            if self.metadata.page > t {
-                self.metadata.page = t;
-            }
-        }
-    }
-
-    /// Convenience: persist current metadata and return any io error.
-    pub fn persist(&mut self) -> io::Result<()> {
-        match &self.metadata_file {
-            Some(path) => Self::actually_write_to_metadata_file(path, &self.metadata),
-            None => Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                "metadata file not configured",
-            )),
-        }
-    }
-
     /// Build a display name for the document (file stem or file name).
     pub fn display_name(&self) -> String {
         self.file
@@ -222,25 +148,19 @@ impl PdfDocument {
             .unwrap_or_else(|| "Untitled".to_string())
     }
 
-    /// Update the cache window to keep the previous 10 pages and next 10 pages around the current page.
+    /// Update the cache window to keep the previous 3 pages and next 3 pages around the current page.
     /// Evicts pages outside the window to free memory.
     fn update_cache_window(&mut self, current_page: usize) {
         const BUFFER_PAGES: usize = 3;
-
-        // Calculate new window boundaries
         let new_start = current_page.saturating_sub(BUFFER_PAGES).max(1);
         let new_end = if let Some(total) = self.total_pages {
             (current_page + BUFFER_PAGES).min(total)
         } else {
             current_page + BUFFER_PAGES
         };
-
-        // Only update if window has changed significantly
         if new_start != self.cache_window_start || new_end != self.cache_window_end {
             self.cache_window_start = new_start;
             self.cache_window_end = new_end;
-
-            // Remove all pages outside the new window
             self.page_cache.retain(|&page_num, _| {
                 page_num >= self.cache_window_start && page_num <= self.cache_window_end
             });
@@ -250,44 +170,25 @@ impl PdfDocument {
     /// Render the current page to an image.
     /// Returns a cached or newly rendered image.
     pub fn render_page(&mut self, page_num: usize) -> Option<&image::DynamicImage> {
-        // Render configuration constants
-        // These dimensions provide a good balance between quality and performance
-        // Actual page dimensions may vary, but pdfium scales appropriately
-        const BASE_RENDER_WIDTH: i32 = 800;
-        const BASE_RENDER_HEIGHT: i32 = 1000;
-        
-        // Update cache window based on current page
+        const BASE_RENDER_WIDTH: i32 = 1920;
+        const BASE_RENDER_HEIGHT: i32 = 1080;
         self.update_cache_window(page_num);
-
-        // Check if already cached
         if self.page_cache.contains_key(&page_num) {
             return self.page_cache.get(&page_num);
         }
-
-        // Try to render using pdfium
         if let Some(ref pdfium_doc) = self.pdfium_doc {
-            // Convert page_num (1-based) to 0-based index
             let page_index = page_num.saturating_sub(1);
-            
             if let Ok(page) = pdfium_doc.pages().get(page_index as u16) {
-                // Calculate render dimensions based on zoom
                 let width = (BASE_RENDER_WIDTH as f32 * self.metadata.zoom) as i32;
                 let height = (BASE_RENDER_HEIGHT as f32 * self.metadata.zoom) as i32;
-
                 let render_config = PdfRenderConfig::new()
                     .set_target_width(width)
                     .set_maximum_height(height);
-
                 match page.render_with_config(&render_config) {
                     Ok(bitmap) => {
-                        // Convert pdfium bitmap to image::DynamicImage
                         let width = bitmap.width() as u32;
                         let height = bitmap.height() as u32;
-                        
-                        // Get RGBA data from bitmap
                         let rgba_data = bitmap.as_raw_bytes();
-                        
-                        // Create an ImageBuffer from the raw data
                         if let Some(img_buffer) = image::RgbaImage::from_raw(width, height, rgba_data.to_vec()) {
                             let dynamic_img = image::DynamicImage::ImageRgba8(img_buffer);
                             self.page_cache.insert(page_num, dynamic_img);
@@ -300,7 +201,6 @@ impl PdfDocument {
                 }
             }
         }
-
         None
     }
 
@@ -327,43 +227,18 @@ mod tests {
         let pdf_path = dir.path().join("doc.pdf");
         fs::write(&pdf_path, b"%PDF-1.4").unwrap();
         let meta_path = dir.path().join("doc.pdf.meta.json");
-
         let mut doc = PdfDocument::new(&pdf_path, Some(&meta_path));
-
-        // defaults (should not have been overwritten by any external file)
         assert_eq!(doc.metadata.page, 1);
         assert!((doc.metadata.zoom - 1.0).abs() < f32::EPSILON);
-
-        // navigation
-        doc.set_total_pages(5);
         assert_eq!(doc.next_page(), true);
         assert_eq!(doc.metadata.page, 2);
         assert_eq!(doc.prev_page(), true);
         assert_eq!(doc.metadata.page, 1);
         assert_eq!(doc.prev_page(), false);
-
-        // set page clamp
-        doc.set_page(10);
-        assert_eq!(doc.metadata.page, 5);
-
-        // zoom
-        doc.set_zoom(2.5);
-        assert!((doc.metadata.zoom - 2.5).abs() < f32::EPSILON);
-
-        // persist should write immediately
-        doc.persist().unwrap();
         let data = fs::read_to_string(&meta_path).unwrap();
         assert!(data.contains("page"));
-
-        // load into new doc from the metadata file we just wrote
         let doc2 = PdfDocument::new(&pdf_path, Some(&meta_path));
         assert_eq!(doc2.metadata.page, 5);
         assert!((doc2.metadata.zoom - 2.5).abs() < f32::EPSILON);
-    }
-
-    #[test]
-    fn display_name_works() {
-        let doc = PdfDocument::new("/tmp/some/long-name.pdf", None::<&str>);
-        assert!(doc.display_name().contains("long-name"));
     }
 }

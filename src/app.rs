@@ -9,9 +9,12 @@ pub struct MyApp {
     pub show_file_browser: bool,
     pub browser_dir: PathBuf,
     pub auto_open_on_select: bool,
+
     /// Page number from which last automatic navigation occurred (for debouncing)
     /// None indicates no automatic navigation has occurred yet
     last_auto_nav_page: Option<usize>,
+    /// Whether fullscreen mode is active (hides all UI chrome)
+    fullscreen: bool,
 }
 
 impl Default for MyApp {
@@ -23,19 +26,23 @@ impl Default for MyApp {
             browser_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             auto_open_on_select: true,
             last_auto_nav_page: None,
+            fullscreen: false,
         }
     }
 }
 
 /// Render the entire UI by delegating to smaller functions.
 pub fn render_ui(app: &mut MyApp, ctx: &egui::Context, frame: &mut eframe::Frame) {
-    // Keyboard shortcuts: check inside the closure-based input reader API
     let open_shortcut = ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O));
     if open_shortcut {
         perform_open_action(app, ctx);
     }
-
-    // Left/Right keys for page navigation (also persist on change)
+    let f11_pressed = ctx.input(|i| i.key_pressed(egui::Key::F11));
+    if f11_pressed {
+        app.fullscreen = !app.fullscreen;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(app.fullscreen));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(!app.fullscreen));
+    }
     let (left_pressed, right_pressed) = ctx.input(|i| (i.key_pressed(egui::Key::ArrowLeft), i.key_pressed(egui::Key::ArrowRight)));
     if let Some(doc) = &mut app.current {
         if left_pressed {
@@ -56,7 +63,6 @@ pub fn render_ui(app: &mut MyApp, ctx: &egui::Context, frame: &mut eframe::Frame
 }
 
 fn perform_open_action(app: &mut MyApp, ctx: &egui::Context) {
-    // On Windows, open native dialog and potentially auto-open
     #[cfg(target_os = "windows")]
     {
         if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
@@ -67,8 +73,6 @@ fn perform_open_action(app: &mut MyApp, ctx: &egui::Context) {
             }
         }
     }
-
-    // On non-Windows, show the in-app browser
     #[cfg(not(target_os = "windows"))]
     {
         app.show_file_browser = true;
@@ -77,6 +81,9 @@ fn perform_open_action(app: &mut MyApp, ctx: &egui::Context) {
 }
 
 fn render_top_menu(app: &mut MyApp, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    if app.fullscreen {
+        return;
+    }
     egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
@@ -84,12 +91,10 @@ fn render_top_menu(app: &mut MyApp, ctx: &egui::Context, _frame: &mut eframe::Fr
                     perform_open_action(app, ctx);
                     ui.close();
                 }
-
                 if ui.button("Quit").clicked() {
                     std::process::exit(0);
                 }
             });
-
             ui.menu_button("Edit", |ui| {
                 if ui.button("Preferences...").clicked() {
                     ui.close();
@@ -100,64 +105,75 @@ fn render_top_menu(app: &mut MyApp, ctx: &egui::Context, _frame: &mut eframe::Fr
 }
 
 fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
-    // Zoom configuration constants
     const ZOOM_STEP: f32 = 0.25;
     const MIN_ZOOM: f32 = 0.25;
     const MAX_ZOOM: f32 = 4.0;
     
-    egui::CentralPanel::default().show(ctx, |ui| {
-        ui.separator();
+    // Configure panel with no margins/padding in fullscreen mode
+    let mut panel = egui::CentralPanel::default();
+    if app.fullscreen {
+        panel = panel.frame(egui::Frame::NONE);
+    }
+    
+    panel.show(ctx, |ui| {
+        // Hide UI controls in fullscreen mode
+        if !app.fullscreen {
+            ui.separator();
 
-        ui.horizontal(|ui| {
-            ui.label("Selected:");
-            ui.monospace(app.open_path.clone());
-        });
-
-        ui.separator();
-
-        if let Some(doc) = &mut app.current {
             ui.horizontal(|ui| {
-                ui.label(format!("Opened: {}", doc.display_name()));
-                if ui.button("Prev").clicked() {
-                    if doc.prev_page() {
-                        let _ = doc.save_metadata();
-                        doc.clear_cache(); // Clear cache when page changes
-                    }
-                }
-                if ui.button("Next").clicked() {
-                    if doc.next_page() {
-                        let _ = doc.save_metadata();
-                        doc.clear_cache(); // Clear cache when page changes
-                    }
-                }
-                if let Some(total) = doc.total_pages {
-                    ui.label(format!("Page: {} / {}", doc.metadata.page, total));
-                } else {
-                    ui.label(format!("Page: {}", doc.metadata.page));
-                }
-                
-                ui.separator();
-                
-                // Zoom controls
-                if ui.button("Zoom -").clicked() {
-                    doc.metadata.zoom = (doc.metadata.zoom - ZOOM_STEP).max(MIN_ZOOM);
-                    let _ = doc.save_metadata();
-                    doc.clear_cache(); // Clear cache when zoom changes
-                }
-                ui.label(format!("{:.0}%", doc.metadata.zoom * 100.0));
-                if ui.button("Zoom +").clicked() {
-                    doc.metadata.zoom = (doc.metadata.zoom + ZOOM_STEP).min(MAX_ZOOM);
-                    let _ = doc.save_metadata();
-                    doc.clear_cache(); // Clear cache when zoom changes
-                }
-                if ui.button("100%").clicked() {
-                    doc.metadata.zoom = 1.0;
-                    let _ = doc.save_metadata();
-                    doc.clear_cache(); // Clear cache when zoom changes
-                }
+                ui.label("Selected:");
+                ui.monospace(app.open_path.clone());
             });
 
             ui.separator();
+        }
+
+        if let Some(doc) = &mut app.current {
+            // Hide controls in fullscreen mode
+            if !app.fullscreen {
+                ui.horizontal(|ui| {
+                    ui.label(format!("Opened: {}", doc.display_name()));
+                    if ui.button("Prev").clicked() {
+                        if doc.prev_page() {
+                            let _ = doc.save_metadata();
+                            doc.clear_cache(); // Clear cache when page changes
+                        }
+                    }
+                    if ui.button("Next").clicked() {
+                        if doc.next_page() {
+                            let _ = doc.save_metadata();
+                            doc.clear_cache(); // Clear cache when page changes
+                        }
+                    }
+                    if let Some(total) = doc.total_pages {
+                        ui.label(format!("Page: {} / {}", doc.metadata.page, total));
+                    } else {
+                        ui.label(format!("Page: {}", doc.metadata.page));
+                    }
+                    
+                    ui.separator();
+                    
+                    // Zoom controls
+                    if ui.button("Zoom -").clicked() {
+                        doc.metadata.zoom = (doc.metadata.zoom - ZOOM_STEP).max(MIN_ZOOM);
+                        let _ = doc.save_metadata();
+                        doc.clear_cache(); // Clear cache when zoom changes
+                    }
+                    ui.label(format!("{:.0}%", doc.metadata.zoom * 100.0));
+                    if ui.button("Zoom +").clicked() {
+                        doc.metadata.zoom = (doc.metadata.zoom + ZOOM_STEP).min(MAX_ZOOM);
+                        let _ = doc.save_metadata();
+                        doc.clear_cache(); // Clear cache when zoom changes
+                    }
+                    if ui.button("100%").clicked() {
+                        doc.metadata.zoom = 1.0;
+                        let _ = doc.save_metadata();
+                        doc.clear_cache(); // Clear cache when zoom changes
+                    }
+                });
+
+                ui.separator();
+            }
 
             // Render the PDF page
             if let Some(img) = doc.get_current_page_image() {
@@ -174,12 +190,40 @@ fn render_central_panel(app: &mut MyApp, ctx: &egui::Context) {
                     egui::TextureOptions::default()
                 );
 
+                // In fullscreen mode, scale image to fit screen while maintaining aspect ratio
+                let image_widget = if app.fullscreen {
+                    // Get available space
+                    let available = ui.available_size();
+                    
+                    // Safety check: ensure we have valid dimensions to avoid division by zero
+                    if size[0] > 0 && size[1] > 0 && available.x > 0.0 && available.y > 0.0 {
+                        // Calculate scaling to fit while maintaining aspect ratio
+                        let image_aspect = size[0] as f32 / size[1] as f32;
+                        let screen_aspect = available.x / available.y;
+                        
+                        let fit_size = if image_aspect > screen_aspect {
+                            // Image is wider than screen - fit to width
+                            egui::Vec2::new(available.x, available.x / image_aspect)
+                        } else {
+                            // Image is taller than screen - fit to height
+                            egui::Vec2::new(available.y * image_aspect, available.y)
+                        };
+                        
+                        egui::Image::new(&texture).fit_to_exact_size(fit_size)
+                    } else {
+                        // Fallback to default if dimensions are invalid
+                        egui::Image::new(&texture)
+                    }
+                } else {
+                    egui::Image::new(&texture)
+                };
+
                 // Display the image in a scrollable area with page-to-page scrolling
                 // Use id_salt with tuple to avoid string allocation every frame
                 let scroll_output = egui::ScrollArea::both()
                     .id_salt(("pdf_scroll", doc.metadata.page))
                     .show(ui, |ui| {
-                        ui.image(&texture);
+                        ui.add(image_widget);
                     });
 
                 // Detect scroll wheel input for page-to-page navigation
