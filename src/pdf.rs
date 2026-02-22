@@ -4,7 +4,6 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use pdfium_render::prelude::*;
-use crate::safe_eprintln;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PdfMetadata {
@@ -53,7 +52,7 @@ impl PdfDocument {
                     None
                 }
             }).unwrap_or_else(|_| {
-                safe_eprintln!("Pdfium library not available. PDF rendering disabled.");
+                eprintln!("Pdfium library not available. PDF rendering disabled.");
                 None
             })
         };
@@ -196,7 +195,7 @@ impl PdfDocument {
                         }
                     }
                     Err(e) => {
-                        safe_eprintln!("Failed to render page {}: {:?}", page_num, e);
+                        eprintln!("Failed to render page {}: {:?}", page_num, e);
                     }
                 }
             }

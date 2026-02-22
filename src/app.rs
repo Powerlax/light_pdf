@@ -416,3 +416,9 @@ fn is_pdf(entry: &PathBuf) -> bool {
         .map(|s| s.eq_ignore_ascii_case("pdf"))
         .unwrap_or(false)
 }
+
+impl eframe::App for MyApp {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        render_ui(self, ctx, frame);
+    }
+}

@@ -3,6 +3,13 @@ name = "light_pdf"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+crate-type = ["cdylib"]
+
+[[bin]]
+name = "light_pdf"
+path = "src/main.rs"
+
 [features]
 default = []
 # Embed the pdfium library into the binary for self-contained distribution
