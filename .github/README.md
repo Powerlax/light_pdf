@@ -4,23 +4,23 @@ A lightweight PDF viewer written in Rust with a native GUI.
 
 ## Features
 
-✅ **PDF Viewing**
+**PDF Viewing**
 - High-quality PDF page rendering using Google's Chromium PDF engine (pdfium)
 - Multi-page navigation with Previous/Next buttons or arrow keys
 - Zoom in/out controls (25% to 400%)
 - Page position and zoom level saved automatically
 
-✅ **Pure Rust PDF Parsing**
+**Pure Rust PDF Parsing**
 - Fast PDF metadata extraction using lopdf
 - Works on all platforms without external dependencies for parsing
 - Page count detection
 
-✅ **Native GUI**
+**Native GUI**
 - Built with eframe/egui for responsive native UI
 - File browser for easy PDF selection
 - Keyboard shortcuts (Ctrl+O to open, arrow keys for navigation)
 
-✅ **Cross-Platform**
+**Cross-Platform**
 - Linux, macOS, and Windows support
 - Platform-native file dialogs (Windows) or built-in browser (Linux/macOS)
 
