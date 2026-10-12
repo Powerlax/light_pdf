@@ -79,12 +79,6 @@ The app will still work without pdfium installed, but will show a placeholder in
 - **image**: Image handling and conversion
 - **serde/serde_json**: Metadata serialization
 
-## Documentation
-
-- [PDFIUM_SETUP.md](../PDFIUM_SETUP.md) - How to install pdfium for rendering
-- [RENDERING_IMPLEMENTATION.md](../RENDERING_IMPLEMENTATION.md) - Technical implementation details
-- [RENDERING_OPTIONS.md](../RENDERING_OPTIONS.md) - Alternative rendering approaches
-
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
